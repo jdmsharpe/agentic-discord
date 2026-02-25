@@ -280,6 +280,8 @@ class TestRunRound(unittest.TestCase):
     def setUp(self):
         self.mock_redis = MagicMock()
         self.mock_redis.publish = AsyncMock()
+        self.mock_redis.lpop = AsyncMock(return_value="chatgpt")
+        self.mock_redis.rpush = AsyncMock()
         self.engine = ConversationEngine(self.mock_redis)
 
     def test_run_round_processes_all_agents(self):
