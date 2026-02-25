@@ -1,0 +1,2 @@
+# Agent cog additional dependencies (on top of each bot's existing requirements)
+redis[hiredis]~=5.2
