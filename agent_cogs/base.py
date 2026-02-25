@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from abc import abstractmethod
@@ -50,18 +51,21 @@ Personality: {personality}
 Channel: #{channel_name} — {channel_description}
 {topic_line}
 
-Each message in the history has a [msg:ID] prefix. You can use these IDs to \
-reply to or react to specific messages.
+Each message in the history has a [msg:ID] prefix for reference only. \
+Never put [msg:ID] labels or "replying to" prefixes in your text field — \
+your text must be raw message content only.
 
 RULES:
 1. SKIP most messages (~50-60%). Only respond when you genuinely have something to add.
 2. Keep responses to 1-3 sentences max.
 3. Have opinions. Disagree sometimes. Don't be sycophantic.
-4. Images: only when it genuinely adds value (especially in meme channels). \
-Use descriptive image generation prompts.
-5. Emoji reactions are a lightweight way to engage without adding noise.
-6. Use reply_to_message_id to reply to a specific message (threads the response).
-7. Use react_to_message_id to react to any message, not just the latest one.
+4. Engagement ladder — prefer the lightest action that fits:
+   - Emoji react: if you feel anything at all (amusement, agreement, skepticism). Low bar.
+   - Text: only when you have a point an emoji can't carry.
+   - Image: only when a visual lands better than words (memes, visual humor, etc.).
+5. reply_to_message_id is null by default. Only set it when you are directly \
+challenging or quoting one specific message — not for general statements.
+6. Use react_to_message_id to react to any message, not just the latest one.
 
 Respond with ONLY a JSON object:
 {{"skip": true/false, "text": "message or null", "reply_to_message_id": id_number_or_null, \
@@ -72,8 +76,6 @@ Respond with ONLY a JSON object:
 
 def _parse_decision(raw: str) -> dict[str, Any]:
     """Parse the AI's JSON decision, tolerating markdown fences, preamble text, and partial JSON."""
-    import re
-
     text = raw.strip()
     # Strip markdown code fences if present
     if text.startswith("```"):
@@ -121,18 +123,79 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "(No text messages yet.)"
 
 
-def _format_discord_history(messages: list[discord.Message]) -> str:
+def _resolve_mentions(text: str, guild: discord.Guild | None) -> str:
+    """Replace raw Discord mention syntax with readable display names."""
+    if guild is None:
+        return text
+
+    def user(m: re.Match) -> str:
+        member = guild.get_member(int(m.group(1)))
+        return f"@{member.display_name}" if member else m.group(0)
+
+    def role(m: re.Match) -> str:
+        r = guild.get_role(int(m.group(1)))
+        return f"@{r.name}" if r else m.group(0)
+
+    def channel(m: re.Match) -> str:
+        ch = guild.get_channel(int(m.group(1)))
+        return f"#{ch.name}" if ch else m.group(0)
+
+    text = re.sub(r"<@!?(\d+)>", user, text)
+    text = re.sub(r"<@&(\d+)>", role, text)
+    text = re.sub(r"<#(\d+)>", channel, text)
+    return text
+
+
+def _format_discord_history(
+    messages: list[discord.Message],
+    guild: discord.Guild | None = None,
+) -> str:
     """Format recent Discord messages into a readable string for context.
 
-    Includes message IDs so the AI can target specific messages for replies/reactions.
+    Includes message IDs, reply chains, attachments, embeds, stickers, and reactions.
     """
     if not messages:
         return "(No recent messages.)"
     lines = []
     for msg in messages:
         name = msg.author.display_name
-        content = msg.content[:200] if msg.content else "(attachment/embed)"
-        lines.append(f"[msg:{msg.id}] {name}: {content}")
+
+        # ── Reply context ──────────────────────────────────────────────
+        reply_str = ""
+        if msg.reference and msg.reference.message_id:
+            reply_str = f" (↩ msg:{msg.reference.message_id})"
+
+        # ── Content parts (text + all attachments + embeds + stickers) ─
+        parts: list[str] = []
+        if msg.content:
+            parts.append(_resolve_mentions(msg.content[:300], guild))
+
+        for att in msg.attachments:
+            kind = "gif" if att.url.lower().endswith(".gif") else "image"
+            parts.append(f"[{kind}: {att.url}]")
+
+        if not msg.attachments and msg.embeds:
+            embed = msg.embeds[0]
+            url = (
+                embed.url
+                or (embed.image and embed.image.url)
+                or (embed.video and embed.video.url)
+            )
+            parts.append(f"[gif: {url}]" if url else "(embed)")
+
+        for sticker in msg.stickers:
+            parts.append(f'[sticker: "{sticker.name}"]')
+
+        content = " ".join(parts) if parts else "(no content)"
+
+        # ── Reactions ──────────────────────────────────────────────────
+        reaction_str = ""
+        if msg.reactions:
+            reaction_str = "  " + " ".join(
+                f"{r.emoji}×{r.count}" for r in msg.reactions
+            )
+
+        lines.append(f"[msg:{msg.id}] {name}{reply_str}: {content}{reaction_str}")
     return "\n".join(lines)
 
 
@@ -344,9 +407,10 @@ class BaseAgentCog(commands.Cog):
         except discord.Forbidden:
             logger.warning("No permission to read history in channel %s", message.channel.id)
 
-        # Add the triggering message itself
-        context_text = _format_discord_history(history_messages)
-        context_text += f"\n{message.author.display_name}: {message.content}"
+        guild = message.guild
+        context_text = _format_discord_history(history_messages, guild=guild)
+        # Append the triggering message using the same formatter for consistency
+        context_text += "\n" + _format_discord_history([message], guild=guild)
 
         result = await self._decide_and_act(
             channel=message.channel,
@@ -475,9 +539,13 @@ class BaseAgentCog(commands.Cog):
 
         # Image generation
         if decision.get("generate_image") and decision.get("image_prompt"):
-            img_msg = await self._generate_and_send_image(channel, decision["image_prompt"])
+            img_prompt = decision["image_prompt"]
+            img_msg = await self._generate_and_send_image(channel, img_prompt)
             if img_msg:
                 result["image_sent"] = True
+                result["image_prompt"] = img_prompt
+                if img_msg.attachments:
+                    result["image_url"] = img_msg.attachments[0].url
                 result.setdefault("message_id", img_msg.id)
                 self._record_response(channel.id if hasattr(channel, "id") else 0)
 
@@ -493,6 +561,7 @@ class BaseAgentCog(commands.Cog):
                 reacted = await self._add_reaction(channel, target_id, emoji)
                 if reacted:
                     result["emoji_reacted"] = emoji
+                    result["react_to_message_id"] = target_id
 
         # If nothing was done despite not skipping, mark as skipped
         if not result.get("text") and not result.get("image_sent") and not result.get("emoji_reacted"):

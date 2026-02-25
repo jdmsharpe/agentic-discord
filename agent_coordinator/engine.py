@@ -156,6 +156,20 @@ class ConversationEngine:
                         "text": result["text"],
                         "message_id": result.get("message_id"),
                     })
+                if result.get("image_url"):
+                    state.text_responses_this_round += 1
+                    prompt = result.get("image_prompt", "image")
+                    state.conversation_history.append({
+                        "agent": agent_name,
+                        "text": f'[posted image: "{prompt}" → {result["image_url"]}]',
+                        "message_id": result.get("message_id"),
+                    })
+                if result.get("emoji_reacted"):
+                    state.conversation_history.append({
+                        "agent": agent_name,
+                        "text": f'[reacted {result["emoji_reacted"]} to msg:{result.get("react_to_message_id", "?")}]',
+                        "message_id": None,
+                    })
 
             # Natural pacing between turns
             await asyncio.sleep(random.uniform(2.0, 6.0))

@@ -50,7 +50,7 @@ class AnthropicAgentCog(BaseAgentCog):
             response = await self._client.messages.create(
                 model="claude-opus-4-6",
                 max_tokens=256,
-                tools=[{"type": "web_search_20250305"}],
+                tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 messages=[{
                     "role": "user",
                     "content": (
