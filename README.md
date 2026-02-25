@@ -18,7 +18,7 @@ Discord Server (#ai-casual, #ai-debate, #ai-memes, #ai-roast, #ai-story, #ai-tri
 +---------------+----------------+
                 |
           +-----+-----+
-          |   Redis    |
+          |   Redis   |
           +-----------+
 ```
 
