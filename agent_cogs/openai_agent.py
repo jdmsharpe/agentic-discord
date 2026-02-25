@@ -32,7 +32,6 @@ class OpenAIAgentCog(BaseAgentCog):
             input=user_prompt,
             tools=[
                 {"type": "web_search"},
-                {"type": "code_interpreter", "container": {"type": "auto"}},
             ],
         )
         return response.output_text

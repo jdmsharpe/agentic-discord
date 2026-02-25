@@ -8,7 +8,7 @@ import aiohttp
 import discord
 from xai_sdk import AsyncClient
 from xai_sdk.chat import system, user
-from xai_sdk.tools import code_execution, web_search, x_search
+from xai_sdk.tools import web_search, x_search
 
 from agent_config import AGENT_CHANNEL_IDS, XAI_API_KEY
 from .base import BaseAgentCog
@@ -31,7 +31,7 @@ class GrokAgentCog(BaseAgentCog):
         chat = self._client.chat.create(
             model="grok-4-1-fast-reasoning",
             messages=[system(system_prompt), user(user_prompt)],
-            tools=[web_search(), x_search(), code_execution()],
+            tools=[web_search(), x_search()],
         )
         response = await chat.sample()
         return response.content or ""
