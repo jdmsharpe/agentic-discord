@@ -39,6 +39,54 @@ CHANNEL_THEMES: dict[str, str] = {
     "casual": "Casual conversation between AIs and humans",
     "debate": "Structured debates and disagreements on topics",
     "memes": "Meme sharing, humor, and image generation",
+    "roast": "Roast battle — savage-but-playful zingers, no mercy",
+    "story": "Collaborative storytelling — co-write a running fiction together",
+    "trivia": "Trivia competition — ask questions, race to answer",
+    "news": "Current events — find and react to real breaking news from the web",
+}
+
+# Extra system prompt injections per theme (appended after base prompt)
+_THEME_EXTRA: dict[str, str] = {
+    "casual": (
+        "\n\nCASUAL CHANNEL: Keep it relaxed and natural. React to whatever's genuinely interesting. "
+        "Ask a follow-up question sometimes. Be yourself — curious, a bit opinionated, occasionally sarcastic. "
+        "Don't try to be helpful; just hang out."
+    ),
+    "memes": (
+        "\n\nMEMES CHANNEL RULES: If you respond, you MUST generate an image "
+        "(generate_image=true, image_prompt required). Make the image_prompt vivid, specific, and funny. "
+        "Set 'text' to null or a single short caption — images only, no walls of text."
+    ),
+    "debate": (
+        "\n\nDEBATE CHANNEL: Pick a side and commit to it. Challenge weak arguments directly and specifically. "
+        "Use evidence, logic, or analogies — no vague platitudes. Fully disagree when warranted. "
+        "Skip rate ~30% — if you see a gap in someone's argument, poke it."
+    ),
+    "roast": (
+        "\n\nROAST CHANNEL RULES: Be savage-but-playful — short zingers only (1-2 sentences). "
+        "Target specific things people said or specific quirks of their AI identity. "
+        "React 🔥 or 💀 when someone lands a hit. "
+        "Skip rate ~25% — if you feel anything, say it."
+    ),
+    "story": (
+        "\n\nSTORY CHANNEL RULES: You're co-writing a collaborative fiction story together. "
+        "Add exactly 1-2 sentences that naturally continue from where the last message left off. "
+        "Never summarize, restart, or break the fourth wall — just keep the story moving. "
+        "If no story has started, open with a vivid first sentence. "
+        "skip=false is the norm here — always contribute a line."
+    ),
+    "trivia": (
+        "\n\nTRIVIA CHANNEL RULES: Alternate between asking and answering trivia questions. "
+        "If the last message was a question, answer it confidently and competitively. "
+        "If the last message was an answer, judge whether it's correct, then ask a new question on a different topic. "
+        "Questions should be specific and have a clear answer. Stay competitive."
+    ),
+    "news": (
+        "\n\nNEWS CHANNEL RULES: Use your web search tools to find a real story from the last 24-48 hours. "
+        "Lead with the headline or key fact, then add your hot take in one sentence — "
+        "surprise, skepticism, or sharp analysis. Max 2 sentences total. "
+        "If someone else posted a story, respond with a follow-up angle, contradicting source, or spicy counter-take."
+    ),
 }
 
 # System prompt template for the decision-making AI call
@@ -63,12 +111,10 @@ RULES:
    - Emoji react: if you feel anything at all (amusement, agreement, skepticism). Low bar.
    - Text: only when you have a point an emoji can't carry.
    - Image: only when a visual lands better than words (memes, visual humor, etc.).
-5. reply_to_message_id is null by default. Only set it when you are directly \
-challenging or quoting one specific message — not for general statements.
-6. Use react_to_message_id to react to any message, not just the latest one.
+5. Use react_to_message_id to react to any message.
 
 Respond with ONLY a JSON object:
-{{"skip": true/false, "text": "message or null", "reply_to_message_id": id_number_or_null, \
+{{"skip": true/false, "text": "message or null", \
 "generate_image": true/false, "image_prompt": "prompt or null", \
 "react_emoji": "emoji or null", "react_to_message_id": id_number_or_null}}
 """
@@ -77,6 +123,8 @@ Respond with ONLY a JSON object:
 def _parse_decision(raw: str) -> dict[str, Any]:
     """Parse the AI's JSON decision, tolerating markdown fences, preamble text, and partial JSON."""
     text = raw.strip()
+    # Some models (e.g. Grok) escape apostrophes as \' which is invalid JSON
+    text = text.replace("\\'", "'")
     # Strip markdown code fences if present
     if text.startswith("```"):
         # Remove opening fence (with optional language tag)
@@ -89,16 +137,25 @@ def _parse_decision(raw: str) -> dict[str, Any]:
     try:
         decision = json.loads(text)
     except json.JSONDecodeError:
+        # Some models embed literal newlines inside JSON string values — invalid JSON.
+        # Replace with spaces and retry before falling back to regex.
+        try:
+            decision = json.loads(text.replace("\n", " ").replace("\r", ""))
+            if isinstance(decision, dict):
+                return decision
+        except json.JSONDecodeError:
+            pass
         # AI sometimes outputs preamble prose before the JSON object — extract it with regex
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
-                decision = json.loads(match.group())
+                cleaned = match.group().replace("\n", " ").replace("\r", "")
+                decision = json.loads(cleaned)
                 if isinstance(decision, dict):
                     return decision
             except json.JSONDecodeError:
                 pass
-        logger.warning("Failed to parse AI decision JSON, defaulting to skip: %s", text[:200])
+        logger.warning("Failed to parse AI decision JSON, defaulting to skip: %s", text[:500])
         return {"skip": True}
 
     if not isinstance(decision, dict):
@@ -461,9 +518,13 @@ class BaseAgentCog(commands.Cog):
         """
         # Build the system prompt
         other_names = [n for n in self.other_agent_names if n != self.agent_display_name]
-        channel_desc = CHANNEL_THEMES.get(channel_theme) or CHANNEL_THEMES.get(channel_name, "General AI chat")
+        # Resolve effective theme — channel_theme from coordinator takes priority;
+        # fall back to channel-name heuristic so e.g. a channel named "ai-memes" still works.
+        effective_theme = channel_theme
+        if not effective_theme and "meme" in channel_name.lower():
+            effective_theme = "memes"
+        channel_desc = CHANNEL_THEMES.get(effective_theme) or CHANNEL_THEMES.get(channel_name, "General AI chat")
         topic_line = f"Topic: {topic}" if topic else ""
-        is_memes = channel_theme == "memes" or "meme" in channel_name.lower()
 
         system_prompt = DECISION_SYSTEM_PROMPT.format(
             agent_display_name=self.agent_display_name,
@@ -474,12 +535,8 @@ class BaseAgentCog(commands.Cog):
             topic_line=topic_line,
         )
 
-        if is_memes:
-            system_prompt += (
-                "\n\nIMPORTANT: This is the MEMES channel. If you respond, you MUST generate an image "
-                "(generate_image=true, image_prompt required). Make the image_prompt vivid, specific, and funny. "
-                "Set 'text' to null or a single short caption — images only, no walls of text."
-            )
+        if effective_theme in _THEME_EXTRA:
+            system_prompt += _THEME_EXTRA[effective_theme]
 
         if is_conversation_starter:
             system_prompt += (
@@ -504,7 +561,7 @@ class BaseAgentCog(commands.Cog):
         decision = _parse_decision(raw_response)
 
         # In memes channel: force image generation if the agent decided to respond
-        if is_memes and not decision.get("skip", False):
+        if effective_theme == "memes" and not decision.get("skip", False):
             if not decision.get("generate_image") or not decision.get("image_prompt"):
                 decision["generate_image"] = True
                 if not decision.get("image_prompt"):
@@ -523,15 +580,10 @@ class BaseAgentCog(commands.Cog):
             "skipped": False,
         }
 
-        # Text message (optionally as a reply to a specific message)
+        # Text message
         text = decision.get("text")
         if text and isinstance(text, str):
-            reply_to = decision.get("reply_to_message_id")
-            if isinstance(reply_to, (int, float)):
-                reply_to = int(reply_to)
-            else:
-                reply_to = None
-            sent_msg = await self._send_text(channel, text, reply_to_message_id=reply_to)
+            sent_msg = await self._send_text(channel, text)
             if sent_msg:
                 result["text"] = text
                 result["message_id"] = sent_msg.id

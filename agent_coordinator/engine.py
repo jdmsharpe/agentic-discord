@@ -94,6 +94,24 @@ class ConversationEngine:
             logger.exception("Result listener crashed")
 
     # ------------------------------------------------------------------
+    # Starter rotation (Redis-backed, survives restarts)
+    # ------------------------------------------------------------------
+
+    async def _pop_starter(self, channel_id: int) -> str:
+        """Return the next starter for this channel, cycling through all agents fairly.
+
+        The queue is stored in Redis so the rotation persists across restarts.
+        When the queue is empty a new shuffled cycle is pushed.
+        """
+        key = f"coordinator:starter_queue:{channel_id}"
+        starter = await self._redis.lpop(key)
+        if not starter:
+            new_cycle = random.sample(AGENT_NAMES, len(AGENT_NAMES))
+            await self._redis.rpush(key, *new_cycle)
+            starter = await self._redis.lpop(key)
+        return starter
+
+    # ------------------------------------------------------------------
     # Scheduled conversations
     # ------------------------------------------------------------------
 
@@ -140,6 +158,11 @@ class ConversationEngine:
         state.total_skips_this_round = 0
 
         is_first_round = state.round_number == 1
+
+        if is_first_round:
+            starter = await self._pop_starter(state.channel_id)
+            agents = [starter] + [a for a in agents if a != starter]
+            logger.info("Conversation starter for channel %s: %s", state.channel_id, starter)
 
         for i, agent_name in enumerate(agents):
             # First agent in the first round starts the conversation
