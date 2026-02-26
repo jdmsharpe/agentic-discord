@@ -37,11 +37,12 @@ class AnthropicAgentCog(BaseAgentCog):
                 {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 5},
             ],
         )
-        # Extract text from content blocks
+        # Extract text from content blocks, stripping web search citation tags
         parts = []
         for block in response.content:
             if block.type == "text":
-                parts.append(block.text)
+                clean = re.sub(r"</?cite[^>]*>", "", block.text)
+                parts.append(clean)
         return "\n".join(parts) if parts else ""
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
