@@ -33,6 +33,10 @@ def _log(name: str, msg: str, *args):
     logger.info("[%s] " + msg, name, *args)
 
 
+MAX_RETRIES = 10
+RETRY_BACKOFF_BASE = 5  # seconds; doubles each attempt up to ~2560s (~42min)
+
+
 async def start_agent(name: str, token: str, module_path: str, class_name: str):
     if not token:
         _log(name, "Skipping — no BOT_TOKEN set")
@@ -41,20 +45,31 @@ async def start_agent(name: str, token: str, module_path: str, class_name: str):
     module = importlib.import_module(module_path)
     CogClass = getattr(module, class_name)
 
-    intents = Intents.default()
-    intents.members = True
-    intents.message_content = True
-    intents.guilds = True
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            intents = Intents.default()
+            intents.members = True
+            intents.message_content = True
+            intents.guilds = True
 
-    bot = Bot(intents=intents)
+            bot = Bot(intents=intents)
 
-    @bot.event
-    async def on_ready(n=name):
-        _log(n, "Online as %s (ID: %s)", bot.user, bot.user.id)
+            @bot.event
+            async def on_ready(n=name):
+                _log(n, "Online as %s (ID: %s)", bot.user, bot.user.id)
 
-    bot.add_cog(CogClass(bot=bot))
-    _log(name, "Starting...")
-    await bot.start(token)
+            bot.add_cog(CogClass(bot=bot))
+            _log(name, "Starting...")
+            await bot.start(token)
+            return  # clean exit
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            delay = min(RETRY_BACKOFF_BASE * (2 ** (attempt - 1)), 2560)
+            logger.exception("[%s] Failed to start (attempt %d/%d), retrying in %ds", name, attempt, MAX_RETRIES, delay)
+            await asyncio.sleep(delay)
+
+    logger.error("[%s] Giving up after %d attempts", name, MAX_RETRIES)
 
 
 async def main():
@@ -65,7 +80,12 @@ async def main():
         for agent in AGENTS
     ]
     tasks.append(asyncio.create_task(start_coordinator()))
-    await asyncio.gather(*tasks)
+
+    # return_exceptions=True prevents one bot crash from killing the coordinator
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error("Task %d failed: %s", i, result)
 
 
 if __name__ == "__main__":
