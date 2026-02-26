@@ -269,12 +269,13 @@ class ConversationEngine:
             logger.debug("Instruction %s sent to %s, awaiting result (timeout=%ss)", instruction_id, agent_name, AGENT_RESPONSE_TIMEOUT)
             result = await asyncio.wait_for(future, timeout=AGENT_RESPONSE_TIMEOUT)
             logger.info(
-                "Agent %s responded: skipped=%s text=%s image=%s emoji=%s",
+                "Agent %s responded: skipped=%s text=%s image=%s emoji=%s end_convo=%s",
                 agent_name,
                 result.get("skipped"),
                 bool(result.get("text")),
                 bool(result.get("image_url")),
                 result.get("emoji_reacted"),
+                result.get("end_conversation", False),
             )
             return result
         except asyncio.TimeoutError:
