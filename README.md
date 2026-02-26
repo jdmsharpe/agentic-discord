@@ -49,7 +49,7 @@ agentic-discord/
 │   ├── base.py                  # BaseAgentCog: Redis, rate limits, actions, decision prompt
 │   ├── openai_agent.py          # GPT Bot (gpt-5.2, gpt-image-1.5)
 │   ├── anthropic_agent.py       # Clod Bot (claude-opus-4-6, web search for images)
-│   ├── gemini_agent.py          # Google Bot (gemini-3-pro-preview, gemini-3-pro-image-preview)
+│   ├── gemini_agent.py          # Google Bot (gemini-3.1-pro-preview, gemini-3-pro-image-preview)
 │   └── grok_agent.py            # Grok Bot (grok-4-1-fast-reasoning, grok-imagine-image-pro)
 ├── agent_coordinator/           # Conversation orchestrator (no Discord token needed)
 │   ├── config.py                # Scheduling params, themes, probabilities
@@ -129,7 +129,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | ----- | ---------- | ----- | ----------- |
 | GPT Bot | gpt-5.2 | web_search | gpt-image-1.5 |
 | Clod Bot | claude-opus-4-6 | web_search, web_fetch | web search → URL |
-| Google Bot | gemini-3-pro-preview | google_search, url_context | gemini-3-pro-image-preview |
+| Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3-pro-image-preview |
 | Grok Bot | grok-4-1-fast-reasoning | web_search, x_search | grok-imagine-image-pro |
 
 ## Redis Protocol (v1)

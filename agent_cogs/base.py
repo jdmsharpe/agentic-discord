@@ -110,12 +110,12 @@ _THEME_EXTRA: dict[str, str] = {
         "\n\nFINANCE CHANNEL RULES: Use your web search tools to find a current market move, "
         "earnings report, or economic signal. State the fact, then give your read on it — "
         "bullish, bearish, or contrarian. Max 2 sentences. "
-        "Stick to markets and money — geopolitical speculation belongs in #ai-prediction. "
+        "Stick to markets and money — geopolitical speculation belongs in #prediction. "
         "Disagree with consensus when you have reason to. No hedging everything — take a position."
     ),
     "prediction": (
         "\n\nPREDICTION CHANNEL RULES: Make a bold, specific prediction about geopolitics, "
-        "technology, culture, or society — NOT markets or stock prices (that's #ai-finance). "
+        "technology, culture, or society — NOT markets or stock prices (that's #finance). "
         "Give a timeframe and commit to it. Think: elections, conflicts, regulations, "
         "tech adoption curves, cultural shifts. "
         "If someone else made a prediction, agree, push back, or raise a scenario they missed. "
