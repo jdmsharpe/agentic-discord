@@ -372,6 +372,39 @@ class TestDecideAndAct(unittest.TestCase):
 
         self.assertTrue(result.get("image_sent"))
 
+    def test_end_conversation_passed_through(self):
+        self.cog.mock_ai_response = '{"skip": false, "text": "Good talk!", "end_conversation": true}'
+        channel = MagicMock()
+        sent = MagicMock(id=333)
+        channel.send = AsyncMock(return_value=sent)
+        channel.id = 100
+        channel.name = "ai-general"
+
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(
+            self.cog._decide_and_act(channel, "context", "topic", "ai-general")
+        )
+        loop.close()
+
+        self.assertTrue(result.get("end_conversation"))
+        self.assertFalse(result["skipped"])
+
+    def test_no_end_conversation_by_default(self):
+        self.cog.mock_ai_response = '{"skip": false, "text": "Hello!"}'
+        channel = MagicMock()
+        sent = MagicMock(id=333)
+        channel.send = AsyncMock(return_value=sent)
+        channel.id = 100
+        channel.name = "ai-general"
+
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(
+            self.cog._decide_and_act(channel, "context", "topic", "ai-general")
+        )
+        loop.close()
+
+        self.assertNotIn("end_conversation", result)
+
     def test_combo_text_and_emoji(self):
         self.cog.mock_ai_response = '{"skip": false, "text": "Nice!", "react_emoji": "👍"}'
         channel = MagicMock()
@@ -422,6 +455,56 @@ class TestFormatConversationHistory(unittest.TestCase):
         self.assertNotIn("bot0:", result)
         self.assertIn("bot74:", result)
         self.assertIn("bot25:", result)
+
+    def test_reactions_merged_inline(self):
+        messages = [
+            {"agent": "claude", "text": "Something edgy", "message_id": 123},
+            {"agent": "grok", "text": "[reacted 💀 to msg:123]", "message_id": None},
+            {"agent": "chatgpt", "text": "LOL", "message_id": 124},
+        ]
+        result = _format_conversation_history(messages)
+        self.assertIn("[msg:123] claude: Something edgy  💀", result)
+        self.assertIn("[msg:124] chatgpt: LOL", result)
+        # Reaction line should NOT appear as a separate entry
+        self.assertNotIn("grok", result)
+        self.assertNotIn("[reacted", result)
+
+    def test_multiple_reactions_on_same_message(self):
+        messages = [
+            {"agent": "claude", "text": "Hot take", "message_id": 200},
+            {"agent": "grok", "text": "[reacted 🔥 to msg:200]", "message_id": None},
+            {"agent": "gemini", "text": "[reacted 💯 to msg:200]", "message_id": None},
+        ]
+        result = _format_conversation_history(messages)
+        self.assertIn("🔥", result)
+        self.assertIn("💯", result)
+        self.assertNotIn("[reacted", result)
+
+    def test_reaction_to_unknown_target_dropped(self):
+        messages = [
+            {"agent": "grok", "text": "[reacted 💀 to msg:999]", "message_id": None},
+            {"agent": "claude", "text": "Hello", "message_id": 100},
+        ]
+        result = _format_conversation_history(messages)
+        self.assertIn("[msg:100] claude: Hello", result)
+        self.assertNotIn("💀", result)
+
+    def test_reaction_with_unknown_id_skipped(self):
+        messages = [
+            {"agent": "grok", "text": "[reacted 💀 to msg:?]", "message_id": None},
+            {"agent": "claude", "text": "Hello", "message_id": 100},
+        ]
+        result = _format_conversation_history(messages)
+        self.assertNotIn("💀", result)
+        self.assertNotIn("[reacted", result)
+
+    def test_image_entries_pass_through(self):
+        messages = [
+            {"agent": "chatgpt", "text": '[posted image: "cat" → https://cdn.example.com/cat.png]', "message_id": 300},
+        ]
+        result = _format_conversation_history(messages)
+        self.assertIn('[posted image: "cat"', result)
+        self.assertIn("https://cdn.example.com/cat.png", result)
 
 
 # ---------------------------------------------------------------------------

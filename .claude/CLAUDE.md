@@ -27,8 +27,8 @@ run_all.py
 | `agent_config.py` | Shared runtime config loaded from `.env` |
 | `run_all.py` | Launches all 4 bots + coordinator in a single process |
 | `run_bot.py` | Single-bot launcher (`AGENT_NAME=chatgpt python run_bot.py`) |
-| `tests/test_agent_cog.py` | 34 unit tests for BaseAgentCog |
-| `tests/test_coordinator.py` | 20 unit tests for coordinator engine |
+| `tests/test_agent_cog.py` | 41 unit tests for BaseAgentCog |
+| `tests/test_coordinator.py` | 24 unit tests for coordinator engine |
 
 ## Redis Protocol (v1)
 
@@ -74,12 +74,14 @@ Unknown fields are ignored (forward-compatible).
   "generate_image": true,
   "image_prompt": "prompt or null",
   "react_emoji": "emoji or null",
-  "react_to_message_id": 1234567890
+  "react_to_message_id": 1234567890,
+  "end_conversation": false
 }
 ```
 
 Bots never thread-reply — only react and post at channel level.
 `skip=true` is fully silent — no emoji, no text, nothing. `react_emoji` is only valid when not skipping.
+`end_conversation=true` signals topic exhaustion; 2 consecutive non-skip agents → conversation wraps naturally.
 
 ## Runtime Config (.env)
 
@@ -130,5 +132,8 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
 - Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
 - Discord context includes relative timestamps ("3h ago") and filters system messages via `msg.is_system()`
+- Round 1 channel backdrop: agents see 15 recent Discord messages before coordinator conversation begins
+- Coordinator history merges emoji reactions inline (e.g., `[msg:123] claude: Hot take  🔥 💯`) instead of separate lines
+- Images in coordinator history appear as `[posted image: "prompt" → URL]` text entries
 - Protocol version is checked on every message; unknown versions are dropped with a warning
 - `pytest~=8.3` is in `requirements.txt`; no separate `requirements-dev.txt`

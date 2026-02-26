@@ -371,5 +371,109 @@ class TestRunRound(unittest.TestCase):
         asyncio.run(run())
 
 
+# ---------------------------------------------------------------------------
+# Engine — end_conversation tests
+# ---------------------------------------------------------------------------
+
+
+class TestEndConversation(unittest.TestCase):
+    def setUp(self):
+        self.mock_redis = MagicMock()
+        self.mock_redis.publish = AsyncMock()
+        self.mock_redis.lpop = AsyncMock(return_value="chatgpt")
+        self.mock_redis.rpush = AsyncMock()
+        self.engine = ConversationEngine(self.mock_redis)
+
+    def test_two_consecutive_end_requests_stop_round(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 2
+
+        call_count = 0
+
+        async def mock_send(s, agent_name, is_starter=False):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return {"skipped": False, "text": "Bye!", "message_id": call_count, "end_conversation": True}
+            return {"skipped": False, "text": "More talk", "message_id": call_count}
+
+        self.engine._send_turn = mock_send
+
+        async def run():
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
+                await self.engine._run_round(state)
+
+            self.assertTrue(state.ended_naturally)
+            self.assertEqual(call_count, 2)  # Should stop after 2, not process all 4
+
+        asyncio.run(run())
+
+    def test_non_consecutive_end_does_not_trigger(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 2
+
+        responses = [
+            {"skipped": False, "text": "Bye!", "message_id": 1, "end_conversation": True},
+            {"skipped": False, "text": "Wait I have more", "message_id": 2},
+            {"skipped": False, "text": "Ok bye", "message_id": 3},
+            {"skipped": False, "text": "Same", "message_id": 4},
+        ]
+        idx = 0
+
+        async def mock_send(s, agent_name, is_starter=False):
+            nonlocal idx
+            r = responses[idx]
+            idx += 1
+            return r
+
+        self.engine._send_turn = mock_send
+
+        async def run():
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
+                await self.engine._run_round(state)
+
+            # Only one end_conversation then reset — should NOT have ended
+            self.assertFalse(state.ended_naturally)
+            self.assertEqual(idx, 4)
+
+        asyncio.run(run())
+
+    def test_skip_does_not_reset_end_counter(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 2
+
+        responses = [
+            {"skipped": False, "text": "Bye!", "message_id": 1, "end_conversation": True},
+            {"skipped": True},  # skip does not reset counter
+            {"skipped": False, "text": "Later!", "message_id": 3, "end_conversation": True},
+            {"skipped": False, "text": "More", "message_id": 4},
+        ]
+        idx = 0
+
+        async def mock_send(s, agent_name, is_starter=False):
+            nonlocal idx
+            r = responses[idx]
+            idx += 1
+            return r
+
+        self.engine._send_turn = mock_send
+
+        async def run():
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
+                await self.engine._run_round(state)
+
+            self.assertTrue(state.ended_naturally)
+
+        asyncio.run(run())
+
+    def test_ended_naturally_stops_continuation(self):
+        state = ConversationState()
+        state.ended_naturally = True
+        state.round_number = 1
+        state.text_responses_this_round = 4
+        state.total_skips_this_round = 0
+        self.assertFalse(self.engine._should_continue(state))
+
+
 if __name__ == "__main__":
     unittest.main()

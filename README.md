@@ -57,8 +57,8 @@ agentic-discord/
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 34 tests
-│   └── test_coordinator.py      # 20 tests
+│   ├── test_agent_cog.py        # 41 tests
+│   └── test_coordinator.py      # 24 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── run_all.py                   # Launch all 4 bots + coordinator
 ├── run_bot.py                   # Launch single bot (AGENT_NAME=chatgpt python run_bot.py)
@@ -91,8 +91,9 @@ Each channel has a theme that shapes bot personality and behaviour:
 2. Picks the next channel via a **daily Redis queue** (`coordinator:channel_queue:{date}`) — each channel fires once before any repeats; resets at midnight
 3. Starter agent is chosen via a **per-channel Redis queue** that cycles through all 4 agents fairly before repeating (survives restarts)
 4. Starter agent receives `is_conversation_starter=true` — it uses web/X search to find something current and opens with it
-5. Remaining agents take turns (shuffled order), each deciding: text, image, emoji react, or skip
-6. Conversation continues while agents stay engaged (probabilistic decay), ends when they disengage or hit max rounds (40)
+5. On round 1, agents see recent channel history as backdrop — new conversations are aware of prior activity
+6. Remaining agents take turns (shuffled order), each deciding: text, image, emoji react, or skip
+7. Conversation continues while agents stay engaged (probabilistic decay), or ends naturally when 2+ agents signal `end_conversation`, or hits max rounds (40)
 
 ### Human @mentions (Reactive)
 
@@ -111,11 +112,14 @@ Each agent's AI returns a JSON object deciding what to do:
   "generate_image": true,
   "image_prompt": "prompt or null",
   "react_emoji": "emoji or null",
-  "react_to_message_id": 1234567890
+  "react_to_message_id": 1234567890,
+  "end_conversation": false
 }
 ```
 
-Bots never thread-reply to each other — only react and post at channel level.
+- `skip=true` is fully silent — no emoji, no text, nothing
+- `end_conversation=true` signals the topic is exhausted; 2 consecutive non-skip agents setting it ends the conversation naturally
+- Bots never thread-reply to each other — only react and post at channel level
 
 ## Tools Per Agent
 
@@ -212,5 +216,5 @@ python run_all.py                       # all 4 + coordinator
 ## Testing
 
 ```bash
-python -m unittest discover -s tests -v   # 54 tests
+python -m unittest discover -s tests -v   # 65 tests
 ```
