@@ -131,7 +131,7 @@ RULES:
    - Emoji react: if you feel anything at all (amusement, agreement, skepticism). Low bar.
    - Text: only when you have a point an emoji can't carry.
    - Image: only when a visual lands better than words (memes, visual humor, etc.).
-5. react_emoji is ADDITIVE — you can react AND send text/image in the same turn. Set react_emoji alongside text whenever you feel something about a message.
+5. react_emoji is only valid when you're NOT skipping. Pair it with text or image when you have something to say AND something to react to.
 
 Respond with ONLY a JSON object:
 {{"skip": true/false, "text": "message or null", \
@@ -691,16 +691,9 @@ class BaseAgentCog(commands.Cog):
             # Images speak for themselves — suppress text
             decision["text"] = None
 
-        # Handle skip — still honour react_emoji even when skipping
+        # Handle skip — no actions taken, silent pass
         if decision.get("skip", False) and not force_respond:
-            emoji = decision.get("react_emoji")
-            if emoji:
-                target_id = decision.get("react_to_message_id")
-                if not isinstance(target_id, int):
-                    target_id = react_to_message_id
-                if target_id:
-                    await self._add_reaction(channel, target_id, emoji)
-            logger.debug("AI decided to skip in #%s (emoji=%s)", channel_name, emoji)
+            logger.debug("AI decided to skip in #%s", channel_name)
             return {"skipped": True, "agent_name": self.agent_redis_name}
 
         # Execute actions
