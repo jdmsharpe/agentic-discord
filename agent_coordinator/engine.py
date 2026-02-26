@@ -39,6 +39,7 @@ class ConversationState:
     conversation_history: list[dict] = field(default_factory=list)
     text_responses_this_round: int = 0
     total_skips_this_round: int = 0
+    ended_naturally: bool = False
 
 
 class ConversationEngine:
@@ -183,6 +184,7 @@ class ConversationEngine:
         random.shuffle(agents)
         state.text_responses_this_round = 0
         state.total_skips_this_round = 0
+        consecutive_end_requests = 0
 
         is_first_round = state.round_number == 1
 
@@ -220,6 +222,20 @@ class ConversationEngine:
                         "text": f'[reacted {result["emoji_reacted"]} to msg:{result.get("react_to_message_id", "?")}]',
                         "message_id": None,
                     })
+
+                # Track consecutive end_conversation requests (skips don't affect counter)
+                if result.get("end_conversation"):
+                    consecutive_end_requests += 1
+                    if consecutive_end_requests >= 2:
+                        state.ended_naturally = True
+                        logger.info(
+                            "Conversation %s ending naturally — 2 consecutive end requests in round %d",
+                            state.conversation_id,
+                            state.round_number,
+                        )
+                        break
+                else:
+                    consecutive_end_requests = 0
 
             # Natural pacing between turns
             await asyncio.sleep(random.uniform(2.0, 6.0))
@@ -272,6 +288,9 @@ class ConversationEngine:
 
     def _should_continue(self, state: ConversationState) -> bool:
         """Decide whether the conversation should continue to the next round."""
+        if state.ended_naturally:
+            return False
+
         if state.round_number >= MAX_ROUNDS:
             return False
 

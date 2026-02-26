@@ -132,11 +132,14 @@ RULES:
    - Text: only when you have a point an emoji can't carry.
    - Image: only when a visual lands better than words (memes, visual humor, etc.).
 5. react_emoji is only valid when you're NOT skipping. Pair it with text or image when you have something to say AND something to react to.
+6. Set end_conversation=true when the topic feels exhausted or the conversation has wound down. \
+Your text should wrap things up naturally (a farewell, a summary quip, etc.). Default is false.
 
 Respond with ONLY a JSON object:
 {{"skip": true/false, "text": "message or null", \
 "generate_image": true/false, "image_prompt": "prompt or null", \
-"react_emoji": "emoji or null", "react_to_message_id": id_number_or_null}}
+"react_emoji": "emoji or null", "react_to_message_id": id_number_or_null, \
+"end_conversation": true/false}}
 """
 
 
@@ -204,16 +207,41 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
     """Format conversation history from coordinator into a readable string.
 
     Includes message IDs so the AI can target specific messages for replies/reactions.
+    Reaction entries are merged inline with their target messages.
     """
     if not messages:
         return "(No messages yet — you're starting the conversation.)"
-    lines = []
-    for msg in messages[-CONTEXT_WINDOW_SIZE:]:
-        agent = msg.get("agent", "unknown")
+
+    windowed = messages[-CONTEXT_WINDOW_SIZE:]
+
+    # First pass: collect reactions keyed by target message_id
+    reactions: dict[str, list[str]] = defaultdict(list)
+    text_entries: list[tuple[str, str, str]] = []  # (mid, agent, text)
+
+    for msg in windowed:
         text = msg.get("text", "")
-        mid = msg.get("message_id", "")
+        mid = msg.get("message_id")
+        agent = msg.get("agent", "unknown")
+
+        # Detect reaction entries: "[reacted X to msg:Y]"
+        react_match = re.match(r"\[reacted (.+?) to msg:(\d+|\?)\]", text)
+        if react_match:
+            emoji, target = react_match.group(1), react_match.group(2)
+            if target != "?":
+                reactions[target].append(emoji)
+            continue
+
         if text:
-            lines.append(f"[msg:{mid}] {agent}: {text}")
+            text_entries.append((str(mid) if mid else "", agent, text))
+
+    # Second pass: build output lines with reactions appended
+    lines = []
+    for mid, agent, text in text_entries:
+        reaction_str = ""
+        if mid and mid in reactions:
+            reaction_str = "  " + " ".join(reactions[mid])
+        lines.append(f"[msg:{mid}] {agent}: {text}{reaction_str}")
+
     return "\n".join(lines) if lines else "(No text messages yet.)"
 
 
@@ -480,8 +508,25 @@ class BaseAgentCog(commands.Cog):
         topic = instruction.get("topic", "")
         channel_theme = instruction.get("channel_theme", "")
         conversation_history = instruction.get("conversation_history", [])
-        context_str = _format_conversation_history(conversation_history)
+        coordinator_context = _format_conversation_history(conversation_history)
         is_starter = instruction.get("is_conversation_starter", False)
+
+        # On round 1, fetch recent Discord history as backdrop for channel context
+        round_number = instruction.get("round_number", 1)
+        if round_number == 1:
+            discord_backdrop = await self._fetch_channel_backdrop(channel)
+        else:
+            discord_backdrop = ""
+
+        if discord_backdrop:
+            no_messages = "(No messages yet — you're starting the conversation.)"
+            conv_label = coordinator_context if coordinator_context != no_messages else "(Just starting.)"
+            context_str = (
+                f"Channel history (before this conversation):\n{discord_backdrop}\n\n"
+                f"This conversation:\n{conv_label}"
+            )
+        else:
+            context_str = coordinator_context
 
         result = await self._decide_and_act(
             channel=channel,
@@ -505,6 +550,21 @@ class BaseAgentCog(commands.Cog):
             if mid:
                 return int(mid)
         return None
+
+    async def _fetch_channel_backdrop(
+        self, channel: discord.abc.Messageable, limit: int = 15
+    ) -> str:
+        """Fetch recent Discord messages for channel context before a new conversation."""
+        try:
+            messages: list[discord.Message] = []
+            async for msg in channel.history(limit=limit):
+                messages.append(msg)
+            messages.reverse()
+            guild = channel.guild if hasattr(channel, "guild") else None
+            return _format_discord_history(messages, guild=guild)
+        except Exception:
+            logger.exception("Failed to fetch channel backdrop")
+            return ""
 
     # ------------------------------------------------------------------
     # Mode 2: Human @mention (reactive)
@@ -744,6 +804,10 @@ class BaseAgentCog(commands.Cog):
             and not result.get("emoji_reacted")
         ):
             result["skipped"] = True
+
+        # Pass through end_conversation signal for the coordinator
+        if decision.get("end_conversation"):
+            result["end_conversation"] = True
 
         return result
 
