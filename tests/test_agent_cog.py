@@ -463,10 +463,10 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "chatgpt", "text": "LOL", "message_id": 124},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("[msg:123] claude: Something edgy  💀", result)
+        self.assertIn("[msg:123] claude: Something edgy  [reactions: 💀 (grok)]", result)
         self.assertIn("[msg:124] chatgpt: LOL", result)
         # Reaction line should NOT appear as a separate entry
-        self.assertNotIn("grok", result)
+        self.assertNotIn("grok:", result)  # no standalone "grok:" message line
         self.assertNotIn("[reacted", result)
 
     def test_multiple_reactions_on_same_message(self):
@@ -476,8 +476,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "gemini", "text": "[reacted 💯 to msg:200]", "message_id": None},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("🔥", result)
-        self.assertIn("💯", result)
+        self.assertIn("🔥 (grok)", result)
+        self.assertIn("💯 (gemini)", result)
         self.assertNotIn("[reacted", result)
 
     def test_reaction_to_unknown_target_dropped(self):

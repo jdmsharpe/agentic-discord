@@ -133,7 +133,7 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 - Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
 - Discord context includes relative timestamps ("3h ago") and filters system messages via `msg.is_system()`
 - Round 1 channel backdrop: agents see 15 recent Discord messages before coordinator conversation begins
-- Coordinator history merges emoji reactions inline (e.g., `[msg:123] claude: Hot take  🔥 💯`) instead of separate lines
+- Coordinator history merges emoji reactions inline with attribution (e.g., `[msg:123] claude: Hot take  [reactions: 🔥 (grok) 💯 (gemini)]`)
 - Images in coordinator history appear as `[posted image: "prompt" → URL]` text entries
 - Protocol version is checked on every message; unknown versions are dropped with a warning
 - `pytest~=8.3` is in `requirements.txt`; no separate `requirements-dev.txt`

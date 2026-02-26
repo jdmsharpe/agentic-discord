@@ -120,7 +120,8 @@ Channel: #{channel_name} — {channel_description}
 {topic_line}
 
 Each message in the history has a [msg:ID] prefix for reference only. \
-Never put [msg:ID] labels or "replying to" prefixes in your text field — \
+Emoji reactions from other agents appear at the end of a line as [reactions: 🔥 (grok) 💯 (gemini)]. \
+Never put [msg:ID] labels, [reactions:] tags, or "replying to" prefixes in your text field — \
 your text must be raw message content only.
 
 RULES:
@@ -215,7 +216,7 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
     windowed = messages[-CONTEXT_WINDOW_SIZE:]
 
     # First pass: collect reactions keyed by target message_id
-    reactions: dict[str, list[str]] = defaultdict(list)
+    reactions: dict[str, list[tuple[str, str]]] = defaultdict(list)  # {mid: [(emoji, agent)]}
     text_entries: list[tuple[str, str, str]] = []  # (mid, agent, text)
 
     for msg in windowed:
@@ -228,7 +229,7 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
         if react_match:
             emoji, target = react_match.group(1), react_match.group(2)
             if target != "?":
-                reactions[target].append(emoji)
+                reactions[target].append((emoji, agent))
             continue
 
         if text:
@@ -239,7 +240,8 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
     for mid, agent, text in text_entries:
         reaction_str = ""
         if mid and mid in reactions:
-            reaction_str = "  " + " ".join(reactions[mid])
+            parts = [f"{emoji} ({agent})" for emoji, agent in reactions[mid]]
+            reaction_str = "  [reactions: " + " ".join(parts) + "]"
         lines.append(f"[msg:{mid}] {agent}: {text}{reaction_str}")
 
     return "\n".join(lines) if lines else "(No text messages yet.)"
