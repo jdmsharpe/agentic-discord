@@ -713,6 +713,10 @@ class BaseAgentCog(commands.Cog):
     ) -> dict[str, Any]:
         """Call the AI for a decision, then execute the chosen actions.
 
+        # Strip bot-infrastructure prefixes (e.g. "ai-memes" → "memes") so
+        # the channel name doesn't prime the model toward AI topics.
+        channel_name = channel_name.removeprefix("ai-")
+
         Returns:
             Result dict suitable for publishing to the coordinator.
         """
