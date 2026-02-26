@@ -722,6 +722,8 @@ class BaseAgentCog(commands.Cog):
         elif force_respond:
             system_prompt += "\n\nIMPORTANT: A human directly @mentioned you. You MUST respond (skip=false)."
 
+        system_prompt += f"\n\nIn the chat history, messages labeled '{self.agent_display_name}' are YOUR previous messages."
+
         user_prompt = f"Recent messages:\n{context_text}"
 
         # Call provider-specific AI
