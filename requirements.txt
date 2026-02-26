@@ -1,7 +1,6 @@
 # Agent cog additional dependencies (on top of each bot's existing requirements)
 py-cord~=2.7
 redis[hiredis]~=7.2
-google-genai==1.65.0
 
 # Dev / testing
 pytest~=9.0.2
