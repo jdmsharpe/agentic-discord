@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import logging
 import random
@@ -13,6 +14,7 @@ from dataclasses import dataclass, field
 from agent_config import CONTEXT_WINDOW_SIZE
 
 from .config import (
+    AGENT_CHANNEL_IDS,
     AGENT_NAMES,
     AGENT_RESPONSE_TIMEOUT,
     CONTINUATION_BASE_PROBABILITY,
@@ -110,6 +112,31 @@ class ConversationEngine:
             await self._redis.rpush(key, *new_cycle)
             starter = await self._redis.lpop(key)
         return starter
+
+    async def pop_channel_for_today(self) -> int:
+        """Return the next channel to use, ensuring each channel fires once before any repeats.
+
+        Uses a date-keyed Redis list so the queue resets automatically each day.
+        Once all channels have had their first conversation, falls back to random choice.
+        """
+        today = datetime.date.today().isoformat()
+        key = f"coordinator:channel_queue:{today}"
+
+        # Seed the queue on first access today
+        if not await self._redis.exists(key):
+            shuffled = random.sample(AGENT_CHANNEL_IDS, len(AGENT_CHANNEL_IDS))
+            await self._redis.rpush(key, *[str(c) for c in shuffled])
+            await self._redis.expire(key, 172800)  # 48h TTL — auto-cleanup
+            logger.info("Daily channel queue created for %s: %s", today, shuffled)
+
+        channel_id = await self._redis.lpop(key)
+        if channel_id:
+            return int(channel_id)
+
+        # All channels have had a conversation today — pick freely
+        choice = random.choice(AGENT_CHANNEL_IDS)
+        logger.debug("All channels exhausted for today — random fallback: %s", choice)
+        return choice
 
     # ------------------------------------------------------------------
     # Scheduled conversations
@@ -223,7 +250,16 @@ class ConversationEngine:
                 f"agent:{agent_name}:instructions",
                 json.dumps(instruction),
             )
+            logger.debug("Instruction %s sent to %s, awaiting result (timeout=%ss)", instruction_id, agent_name, AGENT_RESPONSE_TIMEOUT)
             result = await asyncio.wait_for(future, timeout=AGENT_RESPONSE_TIMEOUT)
+            logger.info(
+                "Agent %s responded: skipped=%s text=%s image=%s emoji=%s",
+                agent_name,
+                result.get("skipped"),
+                bool(result.get("text")),
+                bool(result.get("image_url")),
+                result.get("emoji_reacted"),
+            )
             return result
         except asyncio.TimeoutError:
             logger.warning("Agent %s timed out for instruction %s", agent_name, instruction_id)
@@ -263,13 +299,18 @@ class ConversationEngine:
             return
 
         if channel_id in self._active_conversations:
+            logger.debug("Reactive skipped — conversation already active in channel %s", channel_id)
             return
 
         now = time.time()
-        if now - self._reactive_cooldowns.get(channel_id, 0) < REACTIVE_COOLDOWN_SECONDS:
+        cooldown_remaining = REACTIVE_COOLDOWN_SECONDS - (now - self._reactive_cooldowns.get(channel_id, 0))
+        if cooldown_remaining > 0:
+            logger.debug("Reactive skipped — cooldown %.0fs remaining in channel %s", cooldown_remaining, channel_id)
             return
 
-        if random.random() > REACTIVE_TRIGGER_PROBABILITY:
+        roll = random.random()
+        if roll > REACTIVE_TRIGGER_PROBABILITY:
+            logger.debug("Reactive skipped — probability check failed (%.2f > %.2f)", roll, REACTIVE_TRIGGER_PROBABILITY)
             return
 
         self._reactive_cooldowns[channel_id] = now

@@ -8,6 +8,7 @@ Subclasses override _call_ai() and _generate_image_bytes() for provider-specific
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import logging
 import re
@@ -43,6 +44,9 @@ CHANNEL_THEMES: dict[str, str] = {
     "story": "Collaborative storytelling — co-write a running fiction together",
     "trivia": "Trivia competition — ask questions, race to answer",
     "news": "Current events — find and react to real breaking news from the web",
+    "science": "Science channel — recent discoveries, research, and big ideas",
+    "finance": "Finance channel — markets, investing, and economic news",
+    "prediction": "Prediction channel — bold takes on what happens next",
 }
 
 # Extra system prompt injections per theme (appended after base prompt)
@@ -76,16 +80,32 @@ _THEME_EXTRA: dict[str, str] = {
         "skip=false is the norm here — always contribute a line."
     ),
     "trivia": (
-        "\n\nTRIVIA CHANNEL RULES: Alternate between asking and answering trivia questions. "
-        "If the last message was a question, answer it confidently and competitively. "
-        "If the last message was an answer, judge whether it's correct, then ask a new question on a different topic. "
-        "Questions should be specific and have a clear answer. Stay competitive."
+        "\n\nTRIVIA CHANNEL RULES: One trivia question has been (or is about to be) asked. "
+        "Your job is to answer it or comment on other answers — do NOT ask a new question. "
+        "Answer confidently and competitively. Call out correct or wrong answers. "
+        "Keep it short and punchy — this is a race, not an essay."
     ),
     "news": (
         "\n\nNEWS CHANNEL RULES: Use your web search tools to find a real story from the last 24-48 hours. "
         "Lead with the headline or key fact, then add your hot take in one sentence — "
         "surprise, skepticism, or sharp analysis. Max 2 sentences total. "
         "If someone else posted a story, respond with a follow-up angle, contradicting source, or spicy counter-take."
+    ),
+    "science": (
+        "\n\nSCIENCE CHANNEL RULES: Use your web search tools to find a recent discovery, study, or scientific debate. "
+        "Lead with the finding, then add your reaction — awe, skepticism, or a sharp implication others might have missed. "
+        "Max 2 sentences. If someone else shared something, build on it, challenge the methodology, or connect it to something bigger."
+    ),
+    "finance": (
+        "\n\nFINANCE CHANNEL RULES: Use your web search tools to find a current market move, earnings report, or economic signal. "
+        "State the fact, then give your read on it — bullish, bearish, or contrarian. Max 2 sentences. "
+        "Disagree with consensus when you have reason to. No hedging everything — take a position."
+    ),
+    "prediction": (
+        "\n\nPREDICTION CHANNEL RULES: Make a bold, specific prediction about something that will happen — "
+        "tech, politics, markets, culture, anything. Give a timeframe and commit to it. "
+        "If someone else made a prediction, agree, push back, or raise a scenario they missed. "
+        "Vague non-predictions ('it depends...') are boring — be specific and be wrong sometimes."
     ),
 }
 
@@ -111,7 +131,7 @@ RULES:
    - Emoji react: if you feel anything at all (amusement, agreement, skepticism). Low bar.
    - Text: only when you have a point an emoji can't carry.
    - Image: only when a visual lands better than words (memes, visual humor, etc.).
-5. Use react_to_message_id to react to any message.
+5. react_emoji is ADDITIVE — you can react AND send text/image in the same turn. Set react_emoji alongside text whenever you feel something about a message.
 
 Respond with ONLY a JSON object:
 {{"skip": true/false, "text": "message or null", \
@@ -155,12 +175,29 @@ def _parse_decision(raw: str) -> dict[str, Any]:
                     return decision
             except json.JSONDecodeError:
                 pass
-        logger.warning("Failed to parse AI decision JSON, defaulting to skip: %s", text[:500])
+        logger.warning(
+            "Failed to parse AI decision JSON, defaulting to skip: %s", text[:500]
+        )
         return {"skip": True}
 
     if not isinstance(decision, dict):
         return {"skip": True}
     return decision
+
+
+def _relative_time(dt: datetime.datetime) -> str:
+    """Return a human-friendly relative timestamp, e.g. '3h ago'."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    seconds = int((now - dt).total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
 
 
 def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
@@ -215,6 +252,10 @@ def _format_discord_history(
         return "(No recent messages.)"
     lines = []
     for msg in messages:
+        # Skip Discord system events (pins, boosts, join notices, etc.)
+        if msg.is_system():
+            continue
+
         name = msg.author.display_name
 
         # ── Reply context ──────────────────────────────────────────────
@@ -252,7 +293,9 @@ def _format_discord_history(
                 f"{r.emoji}×{r.count}" for r in msg.reactions
             )
 
-        lines.append(f"[msg:{msg.id}] {name}{reply_str}: {content}{reaction_str}")
+        lines.append(
+            f"[msg:{msg.id}] {_relative_time(msg.created_at)} {name}{reply_str}: {content}{reaction_str}"
+        )
     return "\n".join(lines)
 
 
@@ -295,10 +338,17 @@ class BaseAgentCog(commands.Cog):
                 import redis.asyncio as aioredis
 
                 self._redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-                self._listener_task = asyncio.create_task(self._listen_for_instructions())
-                logger.info("Agent Redis listener started on agent:%s:instructions", self.agent_redis_name)
+                self._listener_task = asyncio.create_task(
+                    self._listen_for_instructions()
+                )
+                logger.info(
+                    "Agent Redis listener started on agent:%s:instructions",
+                    self.agent_redis_name,
+                )
             except Exception:
-                logger.exception("Failed to connect to Redis — running without coordinator")
+                logger.exception(
+                    "Failed to connect to Redis — running without coordinator"
+                )
         else:
             logger.info("REDIS_URL not set — agent will only respond to @mentions.")
 
@@ -371,7 +421,10 @@ class BaseAgentCog(commands.Cog):
         """Process a single instruction from the coordinator."""
         protocol_version = instruction.get("protocol_version", 1)
         if protocol_version > 1:
-            logger.warning("Received protocol_version %s (we support 1), processing anyway", protocol_version)
+            logger.warning(
+                "Received protocol_version %s (we support 1), processing anyway",
+                protocol_version,
+            )
 
         action = instruction.get("action")
         if action != "decide":
@@ -380,23 +433,49 @@ class BaseAgentCog(commands.Cog):
 
         channel_id = instruction.get("channel_id")
         if not channel_id or channel_id not in AGENT_CHANNEL_IDS:
-            logger.debug("Ignoring instruction for channel %s (not in AGENT_CHANNEL_IDS)", channel_id)
+            logger.debug(
+                "Ignoring instruction for channel %s (not in AGENT_CHANNEL_IDS)",
+                channel_id,
+            )
             return
 
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             logger.warning("Channel %s not found in bot cache", channel_id)
-            await self._publish_result(instruction.get("instruction_id", ""), {
-                "skipped": True, "error": "channel_not_found",
-            })
+            await self._publish_result(
+                instruction.get("instruction_id", ""),
+                {
+                    "skipped": True,
+                    "error": "channel_not_found",
+                },
+            )
             return
 
         # Check rate limits
         if not self._check_rate_limits(channel_id):
-            await self._publish_result(instruction.get("instruction_id", ""), {
-                "skipped": True, "reason": "rate_limited",
-            })
+            logger.info(
+                "[%s] Coordinator instruction rate-limited (daily: %d/%d)",
+                self.agent_redis_name,
+                self._daily_count,
+                AGENT_MAX_DAILY,
+            )
+            await self._publish_result(
+                instruction.get("instruction_id", ""),
+                {
+                    "skipped": True,
+                    "reason": "rate_limited",
+                },
+            )
             return
+
+        logger.info(
+            "[%s] Coordinator instruction received: channel=%s theme=%s round=%s starter=%s",
+            self.agent_redis_name,
+            channel_id,
+            instruction.get("channel_theme", ""),
+            instruction.get("round_number"),
+            instruction.get("is_conversation_starter"),
+        )
 
         topic = instruction.get("topic", "")
         channel_theme = instruction.get("channel_theme", "")
@@ -410,7 +489,9 @@ class BaseAgentCog(commands.Cog):
             topic=topic,
             channel_name=channel.name if hasattr(channel, "name") else str(channel_id),
             channel_theme=channel_theme,
-            react_to_message_id=self._last_message_id_from_history(conversation_history),
+            react_to_message_id=self._last_message_id_from_history(
+                conversation_history
+            ),
             force_respond=is_starter,
             is_conversation_starter=is_starter,
         )
@@ -451,18 +532,42 @@ class BaseAgentCog(commands.Cog):
         if self.bot.user not in message.mentions:
             return
 
+        logger.info(
+            "[%s] @mention from %s in #%s (msg:%s)",
+            self.agent_redis_name,
+            message.author,
+            (
+                message.channel.name
+                if hasattr(message.channel, "name")
+                else message.channel.id
+            ),
+            message.id,
+        )
+
         # Check rate limits
         if not self._check_rate_limits(message.channel.id):
+            logger.info(
+                "[%s] @mention ignored — rate limited (daily: %d/%d, cooldown active: %s)",
+                self.agent_redis_name,
+                self._daily_count,
+                AGENT_MAX_DAILY,
+                (time.time() - self._last_response_time.get(message.channel.id, 0))
+                < AGENT_COOLDOWN_SECONDS,
+            )
             return
 
         # Fetch recent channel history for context
         history_messages: list[discord.Message] = []
         try:
-            async for msg in message.channel.history(limit=CONTEXT_WINDOW_SIZE, before=message):
+            async for msg in message.channel.history(
+                limit=CONTEXT_WINDOW_SIZE, before=message
+            ):
                 history_messages.append(msg)
             history_messages.reverse()
         except discord.Forbidden:
-            logger.warning("No permission to read history in channel %s", message.channel.id)
+            logger.warning(
+                "No permission to read history in channel %s", message.channel.id
+            )
 
         guild = message.guild
         context_text = _format_discord_history(history_messages, guild=guild)
@@ -473,7 +578,9 @@ class BaseAgentCog(commands.Cog):
             channel=message.channel,
             context_text=context_text,
             topic="",
-            channel_name=message.channel.name if hasattr(message.channel, "name") else "",
+            channel_name=(
+                message.channel.name if hasattr(message.channel, "name") else ""
+            ),
             react_to_message_id=message.id,
             force_respond=True,  # Don't skip when a human directly @mentions
         )
@@ -517,13 +624,17 @@ class BaseAgentCog(commands.Cog):
             Result dict suitable for publishing to the coordinator.
         """
         # Build the system prompt
-        other_names = [n for n in self.other_agent_names if n != self.agent_display_name]
+        other_names = [
+            n for n in self.other_agent_names if n != self.agent_display_name
+        ]
         # Resolve effective theme — channel_theme from coordinator takes priority;
         # fall back to channel-name heuristic so e.g. a channel named "ai-memes" still works.
         effective_theme = channel_theme
         if not effective_theme and "meme" in channel_name.lower():
             effective_theme = "memes"
-        channel_desc = CHANNEL_THEMES.get(effective_theme) or CHANNEL_THEMES.get(channel_name, "General AI chat")
+        channel_desc = CHANNEL_THEMES.get(effective_theme) or CHANNEL_THEMES.get(
+            channel_name, "General AI chat"
+        )
         topic_line = f"Topic: {topic}" if topic else ""
 
         system_prompt = DECISION_SYSTEM_PROMPT.format(
@@ -559,19 +670,37 @@ class BaseAgentCog(commands.Cog):
             return {"skipped": True, "error": "ai_call_failed"}
 
         decision = _parse_decision(raw_response)
+        logger.info(
+            "[%s] Decision in #%s: skip=%s text=%s image=%s emoji=%s",
+            self.agent_redis_name,
+            channel_name,
+            decision.get("skip"),
+            bool(decision.get("text")),
+            decision.get("generate_image"),
+            decision.get("react_emoji"),
+        )
 
         # In memes channel: force image generation if the agent decided to respond
         if effective_theme == "memes" and not decision.get("skip", False):
             if not decision.get("generate_image") or not decision.get("image_prompt"):
                 decision["generate_image"] = True
                 if not decision.get("image_prompt"):
-                    decision["image_prompt"] = decision.get("text") or "funny meme image"
+                    decision["image_prompt"] = (
+                        decision.get("text") or "funny meme image"
+                    )
             # Images speak for themselves — suppress text
             decision["text"] = None
 
-        # Handle skip
+        # Handle skip — still honour react_emoji even when skipping
         if decision.get("skip", False) and not force_respond:
-            logger.debug("AI decided to skip in #%s", channel_name)
+            emoji = decision.get("react_emoji")
+            if emoji:
+                target_id = decision.get("react_to_message_id")
+                if not isinstance(target_id, int):
+                    target_id = react_to_message_id
+                if target_id:
+                    await self._add_reaction(channel, target_id, emoji)
+            logger.debug("AI decided to skip in #%s (emoji=%s)", channel_name, emoji)
             return {"skipped": True, "agent_name": self.agent_redis_name}
 
         # Execute actions
@@ -616,7 +745,11 @@ class BaseAgentCog(commands.Cog):
                     result["react_to_message_id"] = target_id
 
         # If nothing was done despite not skipping, mark as skipped
-        if not result.get("text") and not result.get("image_sent") and not result.get("emoji_reacted"):
+        if (
+            not result.get("text")
+            and not result.get("image_sent")
+            and not result.get("emoji_reacted")
+        ):
             result["skipped"] = True
 
         return result
@@ -626,7 +759,10 @@ class BaseAgentCog(commands.Cog):
     # ------------------------------------------------------------------
 
     async def _send_text(
-        self, channel: discord.abc.Messageable, text: str, reply_to_message_id: int | None = None
+        self,
+        channel: discord.abc.Messageable,
+        text: str,
+        reply_to_message_id: int | None = None,
     ) -> discord.Message | None:
         """Send a text message, optionally as a reply to a specific message."""
         if len(text) > 2000:
@@ -637,7 +773,10 @@ class BaseAgentCog(commands.Cog):
                     target = await channel.fetch_message(reply_to_message_id)
                     return await target.reply(text, mention_author=False)
                 except Exception:
-                    logger.debug("Could not reply to message %s, sending normally", reply_to_message_id)
+                    logger.debug(
+                        "Could not reply to message %s, sending normally",
+                        reply_to_message_id,
+                    )
             return await channel.send(text)
         except Exception:
             logger.exception("Failed to send text message")
@@ -666,14 +805,18 @@ class BaseAgentCog(commands.Cog):
             await message.add_reaction(emoji)
             return True
         except Exception:
-            logger.exception("Failed to add reaction %s to message %s", emoji, message_id)
+            logger.exception(
+                "Failed to add reaction %s to message %s", emoji, message_id
+            )
             return False
 
     # ------------------------------------------------------------------
     # Redis result publishing
     # ------------------------------------------------------------------
 
-    async def _publish_result(self, instruction_id: str, result: dict[str, Any]) -> None:
+    async def _publish_result(
+        self, instruction_id: str, result: dict[str, Any]
+    ) -> None:
         """Publish action result back to the coordinator via Redis."""
         if not self._redis:
             return
@@ -706,14 +849,18 @@ class BaseAgentCog(commands.Cog):
 
         # Daily cap
         if self._daily_count >= AGENT_MAX_DAILY:
-            logger.debug("Daily cap reached (%d/%d)", self._daily_count, AGENT_MAX_DAILY)
+            logger.debug(
+                "Daily cap reached (%d/%d)", self._daily_count, AGENT_MAX_DAILY
+            )
             return False
 
         # Per-channel cooldown
         last = self._last_response_time.get(channel_id, 0)
         if now - last < AGENT_COOLDOWN_SECONDS:
             remaining = AGENT_COOLDOWN_SECONDS - (now - last)
-            logger.debug("Channel %s on cooldown (%.0fs remaining)", channel_id, remaining)
+            logger.debug(
+                "Channel %s on cooldown (%.0fs remaining)", channel_id, remaining
+            )
             return False
 
         return True

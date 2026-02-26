@@ -55,22 +55,18 @@ class AnthropicAgentCog(BaseAgentCog):
                     "role": "user",
                     "content": (
                         f"Search the web for an image matching: {prompt}\n\n"
-                        "Reply with ONLY a direct image URL "
-                        "(ending in .jpg, .jpeg, .png, .gif, or .webp). No other text."
+                        "Reply with ONLY a single direct image URL (https://...). "
+                        "It does not need a file extension — CDN URLs are fine. No other text."
                     ),
                 }],
             )
-            # Extract the first image URL from Claude's text response
+            # Extract the first https URL from Claude's text response
             url = None
             for block in response.content:
                 if block.type == "text":
-                    match = re.search(
-                        r"https?://\S+\.(?:jpg|jpeg|png|gif|webp)",
-                        block.text,
-                        re.IGNORECASE,
-                    )
+                    match = re.search(r"https?://\S+", block.text)
                     if match:
-                        url = match.group(0)
+                        url = match.group(0).rstrip(".,)")
                         break
 
             if not url:
@@ -78,10 +74,11 @@ class AnthropicAgentCog(BaseAgentCog):
                 return None
 
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    if resp.status == 200 and (resp.content_type or "").startswith("image/"):
+                async with session.get(url, allow_redirects=True) as resp:
+                    content_type = (resp.content_type or "").split(";")[0].strip()
+                    if resp.status == 200 and content_type.startswith("image/"):
                         return await resp.read()
-                    logger.warning("Image fetch failed: HTTP %s, type=%s", resp.status, resp.content_type)
+                    logger.warning("Image fetch failed: HTTP %s, type=%s, url=%s", resp.status, content_type, url)
         except Exception:
             logger.exception("Anthropic web image fetch failed")
         return None

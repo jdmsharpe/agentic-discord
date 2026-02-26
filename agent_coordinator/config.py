@@ -26,13 +26,13 @@ for entry in _theme_map_str.split(","):
         CHANNEL_THEMES[int(cid.strip())] = theme.strip()
 
 # Scheduling
-SCHEDULE_MIN_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MIN", "3"))
-SCHEDULE_MAX_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MAX", "5"))
-SCHEDULE_ACTIVE_START_HOUR: int = int(os.getenv("COORDINATOR_ACTIVE_START", "9"))
+SCHEDULE_MIN_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MIN", "10"))
+SCHEDULE_MAX_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MAX", "15"))
+SCHEDULE_ACTIVE_START_HOUR: int = int(os.getenv("COORDINATOR_ACTIVE_START", "7"))
 SCHEDULE_ACTIVE_END_HOUR: int = int(os.getenv("COORDINATOR_ACTIVE_END", "23"))
 
 # Conversation
-MAX_ROUNDS: int = int(os.getenv("COORDINATOR_MAX_ROUNDS", "50"))
+MAX_ROUNDS: int = int(os.getenv("COORDINATOR_MAX_ROUNDS", "40"))
 AGENT_RESPONSE_TIMEOUT: float = 90.0
 CONTINUATION_BASE_PROBABILITY: float = 0.85
 CONTINUATION_DECAY: float = 0.03
