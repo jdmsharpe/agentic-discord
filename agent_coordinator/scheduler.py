@@ -109,12 +109,12 @@ class DailyScheduler:
         await asyncio.sleep(delta)
 
     async def _fire_conversation(self) -> None:
-        """Pick a random channel and start a conversation."""
+        """Pick the next channel (daily rotation) and start a conversation."""
         if not AGENT_CHANNEL_IDS:
             logger.warning("No AGENT_CHANNEL_IDS configured — skipping")
             return
 
-        channel_id = random.choice(AGENT_CHANNEL_IDS)
+        channel_id = await self._engine.pop_channel_for_today()
         theme = CHANNEL_THEMES.get(channel_id, "casual")
 
         logger.info("Firing conversation in channel %s [%s]", channel_id, theme)
