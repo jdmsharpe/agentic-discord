@@ -22,6 +22,9 @@ import types as stdlib_types
 fake_config = stdlib_types.ModuleType("agent_config")
 fake_config.AGENT_NAME = "test_bot"
 fake_config.AGENT_PERSONALITY = "You are a test bot."
+fake_config.AGENT_PERSONALITY_MAP = {
+    "chatgpt": "Default GPT personality.",
+}
 fake_config.AGENT_CHANNEL_IDS = [100, 200]
 fake_config.BOT_IDS = [900, 901, 902]
 fake_config.AGENT_MAX_DAILY = 5
@@ -445,8 +448,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "claude", "text": "Hi there"},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("grok: Hello", result)
-        self.assertIn("claude: Hi there", result)
+        self.assertIn("Grok Bot: Hello", result)
+        self.assertIn("Clod Bot: Hi there", result)
 
     def test_limits_to_context_window(self):
         messages = [{"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)]
@@ -463,8 +466,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "chatgpt", "text": "LOL", "message_id": 124},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("[msg:123] claude: Something edgy  [reactions: 💀 (grok)]", result)
-        self.assertIn("[msg:124] chatgpt: LOL", result)
+        self.assertIn("[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]", result)
+        self.assertIn("[msg:124] GPT Bot: LOL", result)
         # Reaction line should NOT appear as a separate entry
         self.assertNotIn("grok:", result)  # no standalone "grok:" message line
         self.assertNotIn("[reacted", result)
@@ -476,8 +479,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "gemini", "text": "[reacted 💯 to msg:200]", "message_id": None},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("🔥 (grok)", result)
-        self.assertIn("💯 (gemini)", result)
+        self.assertIn("🔥 (Grok Bot)", result)
+        self.assertIn("💯 (Gemini Bot)", result)
         self.assertNotIn("[reacted", result)
 
     def test_reaction_to_unknown_target_dropped(self):
@@ -486,7 +489,7 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "claude", "text": "Hello", "message_id": 100},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("[msg:100] claude: Hello", result)
+        self.assertIn("[msg:100] Clod Bot: Hello", result)
         self.assertNotIn("💀", result)
 
     def test_reaction_with_unknown_id_skipped(self):

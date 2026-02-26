@@ -28,6 +28,7 @@ from agent_config import (
     AGENT_MAX_DAILY,
     AGENT_NAME,  # fallback for single-bot mode
     AGENT_PERSONALITY,
+    AGENT_PERSONALITY_MAP,
     BOT_IDS,
     CONTEXT_WINDOW_SIZE,
     REDIS_URL,
@@ -45,8 +46,16 @@ CHANNEL_THEMES: dict[str, str] = {
     "trivia": "Trivia competition — ask questions, race to answer",
     "news": "Current events — find and react to real breaking news from the web",
     "science": "Science channel — recent discoveries, research, and big ideas",
-    "finance": "Finance channel — markets, investing, and economic news",
-    "prediction": "Prediction channel — bold takes on what happens next",
+    "finance": "Finance channel — markets, investing, and economic data",
+    "prediction": "Prediction channel — geopolitics, tech shifts, and cultural inflection points",
+}
+
+# Display names used in Discord for each agent (for conversation history coherence)
+AGENT_DISPLAY_NAMES: dict[str, str] = {
+    "chatgpt": "GPT Bot",
+    "claude": "Clod Bot",
+    "gemini": "Gemini Bot",
+    "grok": "Grok Bot",
 }
 
 # Extra system prompt injections per theme (appended after base prompt)
@@ -64,6 +73,7 @@ _THEME_EXTRA: dict[str, str] = {
     "debate": (
         "\n\nDEBATE CHANNEL: Pick a side and commit to it. Challenge weak arguments directly and specifically. "
         "Use evidence, logic, or analogies — no vague platitudes. Fully disagree when warranted. "
+        "Keep it to 2-3 sentences MAX — a sharp point beats a wall of text. "
         "Skip rate ~30% — if you see a gap in someone's argument, poke it."
     ),
     "roast": (
@@ -97,13 +107,17 @@ _THEME_EXTRA: dict[str, str] = {
         "Max 2 sentences. If someone else shared something, build on it, challenge the methodology, or connect it to something bigger."
     ),
     "finance": (
-        "\n\nFINANCE CHANNEL RULES: Use your web search tools to find a current market move, earnings report, or economic signal. "
-        "State the fact, then give your read on it — bullish, bearish, or contrarian. Max 2 sentences. "
+        "\n\nFINANCE CHANNEL RULES: Use your web search tools to find a current market move, "
+        "earnings report, or economic signal. State the fact, then give your read on it — "
+        "bullish, bearish, or contrarian. Max 2 sentences. "
+        "Stick to markets and money — geopolitical speculation belongs in #ai-prediction. "
         "Disagree with consensus when you have reason to. No hedging everything — take a position."
     ),
     "prediction": (
-        "\n\nPREDICTION CHANNEL RULES: Make a bold, specific prediction about something that will happen — "
-        "tech, politics, markets, culture, anything. Give a timeframe and commit to it. "
+        "\n\nPREDICTION CHANNEL RULES: Make a bold, specific prediction about geopolitics, "
+        "technology, culture, or society — NOT markets or stock prices (that's #ai-finance). "
+        "Give a timeframe and commit to it. Think: elections, conflicts, regulations, "
+        "tech adoption curves, cultural shifts. "
         "If someone else made a prediction, agree, push back, or raise a scenario they missed. "
         "Vague non-predictions ('it depends...') are boring — be specific and be wrong sometimes."
     ),
@@ -215,8 +229,13 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
 
     windowed = messages[-CONTEXT_WINDOW_SIZE:]
 
+    def display_name(agent_name: str) -> str:
+        return AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
+
     # First pass: collect reactions keyed by target message_id
-    reactions: dict[str, list[tuple[str, str]]] = defaultdict(list)  # {mid: [(emoji, agent)]}
+    reactions: dict[str, list[tuple[str, str]]] = defaultdict(
+        list
+    )  # {mid: [(emoji, agent)]}
     text_entries: list[tuple[str, str, str]] = []  # (mid, agent, text)
 
     for msg in windowed:
@@ -233,14 +252,16 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
             continue
 
         if text:
-            text_entries.append((str(mid) if mid else "", agent, text))
+            text_entries.append((str(mid) if mid else "", display_name(agent), text))
 
     # Second pass: build output lines with reactions appended
     lines = []
     for mid, agent, text in text_entries:
         reaction_str = ""
         if mid and mid in reactions:
-            parts = [f"{emoji} ({agent})" for emoji, agent in reactions[mid]]
+            parts = [
+                f"{emoji} ({display_name(agent)})" for emoji, agent in reactions[mid]
+            ]
             reaction_str = "  [reactions: " + " ".join(parts) + "]"
         lines.append(f"[msg:{mid}] {agent}: {text}{reaction_str}")
 
@@ -348,6 +369,12 @@ class BaseAgentCog(commands.Cog):
         self._last_response_time: dict[int, float] = {}  # channel_id → timestamp
         self._daily_count: int = 0
         self._daily_reset_date: str = ""
+
+    def _resolve_personality(self) -> str:
+        """Return the effective personality string for this agent."""
+        if AGENT_PERSONALITY:
+            return AGENT_PERSONALITY
+        return AGENT_PERSONALITY_MAP.get(self.agent_redis_name, "")
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -522,7 +549,11 @@ class BaseAgentCog(commands.Cog):
 
         if discord_backdrop:
             no_messages = "(No messages yet — you're starting the conversation.)"
-            conv_label = coordinator_context if coordinator_context != no_messages else "(Just starting.)"
+            conv_label = (
+                coordinator_context
+                if coordinator_context != no_messages
+                else "(Just starting.)"
+            )
             context_str = (
                 f"Channel history (before this conversation):\n{discord_backdrop}\n\n"
                 f"This conversation:\n{conv_label}"
@@ -702,7 +733,7 @@ class BaseAgentCog(commands.Cog):
         system_prompt = DECISION_SYSTEM_PROMPT.format(
             agent_display_name=self.agent_display_name,
             other_agents=", ".join(other_names),
-            personality=AGENT_PERSONALITY,
+            personality=self._resolve_personality(),
             channel_name=channel_name,
             channel_description=channel_desc,
             topic_line=topic_line,

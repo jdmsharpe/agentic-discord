@@ -182,6 +182,9 @@ ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
 XAI_API_KEY=
 
+# Optional global personality override (applies to all bots if set)
+AGENT_PERSONALITY=
+
 # Discord IDs
 GUILD_IDS=123456789
 AGENT_CHANNEL_IDS=111,222,333,444,555,666,777  # comma-separated channel IDs
