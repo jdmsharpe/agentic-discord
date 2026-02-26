@@ -6,7 +6,7 @@ any bot.
 
 ## Architecture
 
-```
+```text
 run_all.py
   ├── 4 × py-cord Bot instances  (agent_cogs/)
   │     each: BaseAgentCog + per-provider subclass + Redis subscriber
@@ -18,7 +18,7 @@ run_all.py
 ## Key Files
 
 | Path | Purpose |
-|---|---|
+| --- | --- |
 | `agent_cogs/base.py` | `BaseAgentCog` — shared Redis, rate limits, action execution, decision prompt |
 | `agent_cogs/{openai,anthropic,gemini,grok}_agent.py` | Provider-specific subclasses |
 | `agent_coordinator/engine.py` | Conversation state machine + Redis pub/sub |
@@ -33,6 +33,7 @@ run_all.py
 ## Redis Protocol (v1)
 
 **Coordinator → Agent** (`agent:{name}:instructions`):
+
 ```json
 {
   "protocol_version": 1,
@@ -48,6 +49,7 @@ run_all.py
 ```
 
 **Agent → Coordinator** (`agent:{name}:results`):
+
 ```json
 {
   "protocol_version": 1,
@@ -77,6 +79,7 @@ Unknown fields are ignored (forward-compatible).
 ```
 
 Bots never thread-reply — only react and post at channel level.
+`skip=true` is fully silent — no emoji, no text, nothing. `react_emoji` is only valid when not skipping.
 
 ## Runtime Config (.env)
 
@@ -84,14 +87,16 @@ All config flows through `agent_config.py` → loaded from `.env`.
 `AGENT_NAME` is the only per-instance value (passed at runtime, not in `.env`).
 
 Key env vars:
+
 - `BOT_TOKEN_{CHATGPT,CLAUDE,GEMINI,GROK}` — one Discord token per bot
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`
 - `GUILD_IDS`, `AGENT_CHANNEL_IDS`, `BOT_IDS` — comma-separated integers
 - `REDIS_URL` — defaults to `redis://127.0.0.1:6379`
 - `AGENT_MAX_DAILY`, `AGENT_COOLDOWN_SECONDS` — rate limiting
-- `CONTEXT_WINDOW_SIZE` — messages sent to AI as context (default 50)
-- `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping
+- `CONTEXT_WINDOW_SIZE` — messages sent to AI as context (default 40)
+- `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping (themes: casual, debate, memes, roast, story, trivia, news, science, finance, prediction)
 - `COORDINATOR_FIRE_ON_STARTUP=true` — useful for local testing
+- `AGENT_RESPONSE_TIMEOUT` — hardcoded 90s in `config.py`; covers AI call + image gen + Discord post
 
 ## Running Locally
 
@@ -122,6 +127,8 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 - New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` and `_generate_image(prompt)`
 - All Redis keys follow `agent:{name}:*` namespace
 - Coordinator keys: `coordinator:*`
-- Per-channel starter queue: `coordinator:channel:{id}:starter_queue` (cycles all 4 agents fairly, survives restarts)
+- Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
+- Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
+- Discord context includes relative timestamps ("3h ago") and filters system messages via `msg.is_system()`
 - Protocol version is checked on every message; unknown versions are dropped with a warning
 - `pytest~=8.3` is in `requirements.txt`; no separate `requirements-dev.txt`
