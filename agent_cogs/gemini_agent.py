@@ -27,7 +27,7 @@ class GeminiAgentCog(BaseAgentCog):
 
     async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
         response = await self._client.aio.models.generate_content(
-            model="gemini-3-pro-preview",
+            model="gemini-3.1-pro-preview",
             contents=[{"role": "user", "parts": [{"text": user_prompt}]}],
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
