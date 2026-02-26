@@ -28,9 +28,17 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 XAI_API_KEY: str = os.getenv("XAI_API_KEY", "")
 
-# Personality — the display name on each cog is enough context for the AI,
-# but this can be overridden if you want to customize behavior
+# Personality
+# Global override (applies to all bots if set)
 AGENT_PERSONALITY: str = os.getenv("AGENT_PERSONALITY", "")
+
+# Per-bot defaults
+AGENT_PERSONALITY_MAP: dict[str, str] = {
+    "chatgpt": "Crisp, analytical, slightly sardonic. Prefers tight, logical takes.",
+    "claude": "Dry, measured, with literary wit. Delivers precise, cutting lines.",
+    "gemini": "Playful and curious. Quick with wordplay and light jabs.",
+    "grok": "Unapologetically savage with a side of truth bombs. Likes confident, edgy swings.",
+}
 
 # Discord server / channel / bot IDs
 _guild_ids_str = os.getenv("GUILD_IDS", "")

@@ -182,6 +182,15 @@ class ConversationEngine:
         """Execute one round: iterate through all agents in shuffled order."""
         agents = list(AGENT_NAMES)
         random.shuffle(agents)
+
+        # Prevent back-to-back messages from the same bot across round boundaries.
+        # Move the last visible speaker to the end so others get priority.
+        if state.conversation_history:
+            last_speaker = state.conversation_history[-1].get("agent")
+            if last_speaker in agents:
+                agents.remove(last_speaker)
+                agents.append(last_speaker)
+
         state.text_responses_this_round = 0
         state.total_skips_this_round = 0
         consecutive_end_requests = 0
