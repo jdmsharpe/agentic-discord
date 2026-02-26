@@ -540,9 +540,11 @@ class BaseAgentCog(commands.Cog):
         coordinator_context = _format_conversation_history(conversation_history)
         is_starter = instruction.get("is_conversation_starter", False)
 
-        # On round 1, fetch recent Discord history as backdrop for channel context
+        # On round 1, fetch recent Discord history as backdrop for channel context.
+        # Skip the backdrop for starters — they web-search for a fresh topic and
+        # old conversation history pulls them back toward the previous topic.
         round_number = instruction.get("round_number", 1)
-        if round_number == 1:
+        if round_number == 1 and not is_starter:
             discord_backdrop = await self._fetch_channel_backdrop(channel)
         else:
             discord_backdrop = ""
@@ -749,10 +751,7 @@ class BaseAgentCog(commands.Cog):
         if is_conversation_starter:
             system_prompt += (
                 "\n\nYou are STARTING a new conversation. You MUST respond (skip=false). "
-                "Use your web search or social media search tools to find something current and interesting "
-                "happening right now — trending news, a viral post, a new release, a hot take online. "
-                "Then open with it in a way that fits this channel's theme. "
-                "Be bold — throw out an opinion, ask a provocative question, or share something surprising you just found."
+                "Open with something fresh that fits this channel's theme."
             )
         elif force_respond:
             system_prompt += "\n\nIMPORTANT: A human directly @mentioned you. You MUST respond (skip=false)."
