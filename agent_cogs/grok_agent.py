@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class GrokAgentCog(BaseAgentCog):
-    agent_display_name = "Grok Bot"
     agent_redis_name = "grok"
-    other_agent_names = ["GPT Bot", "Google Bot", "Clod Bot"]
 
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)

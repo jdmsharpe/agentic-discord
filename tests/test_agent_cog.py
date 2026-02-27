@@ -39,8 +39,7 @@ from agent_cogs.base import BaseAgentCog, _parse_decision, _format_conversation_
 class MockAgentCog(BaseAgentCog):
     """Concrete subclass for testing — overrides abstract methods with mocks."""
 
-    agent_display_name = "TestBot"
-    other_agent_names = ["Claude", "Gemini", "Grok"]
+    agent_redis_name = "testbot"
 
     def __init__(self):
         # Don't call super().__init__ to avoid needing a real bot
@@ -50,6 +49,8 @@ class MockAgentCog(BaseAgentCog):
         self.bot.user.__eq__ = lambda self, other: getattr(other, "id", None) == 12345
         self._redis = None
         self._listener_task = None
+        self.agent_display_name = "TestBot"
+        self.other_agent_names = ["Clod Bot", "Google Bot", "Grok Bot"]
         self._last_response_time = {}
         self._daily_count = 0
         self._daily_reset_date = ""
@@ -480,7 +481,7 @@ class TestFormatConversationHistory(unittest.TestCase):
         ]
         result = _format_conversation_history(messages)
         self.assertIn("🔥 (Grok Bot)", result)
-        self.assertIn("💯 (Gemini Bot)", result)
+        self.assertIn("💯 (Google Bot)", result)
         self.assertNotIn("[reacted", result)
 
     def test_reaction_to_unknown_target_dropped(self):

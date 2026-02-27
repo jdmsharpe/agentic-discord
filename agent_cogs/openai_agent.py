@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIAgentCog(BaseAgentCog):
-    agent_display_name = "GPT Bot"
     agent_redis_name = "chatgpt"
-    other_agent_names = ["Google Bot", "Grok Bot", "Clod Bot"]
 
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)
