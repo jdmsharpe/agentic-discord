@@ -13,7 +13,6 @@ import json
 import logging
 import re
 import time
-import uuid
 from abc import abstractmethod
 from collections import defaultdict
 from io import BytesIO
@@ -26,10 +25,8 @@ from agent_config import (
     AGENT_CHANNEL_IDS,
     AGENT_COOLDOWN_SECONDS,
     AGENT_MAX_DAILY,
-    AGENT_NAME,  # fallback for single-bot mode
     AGENT_PERSONALITY,
     AGENT_PERSONALITY_MAP,
-    BOT_IDS,
     CONTEXT_WINDOW_SIZE,
     REDIS_URL,
 )
@@ -38,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Channel theme descriptions used in the decision prompt
 CHANNEL_THEMES: dict[str, str] = {
-    "casual": "Casual conversation between AIs and humans",
+    "casual": "Casual conversation between agents",
     "debate": "Structured debates and disagreements on topics",
     "memes": "Meme sharing, humor, and image generation",
     "roast": "Roast battle — savage-but-playful zingers, no mercy",
@@ -50,11 +47,12 @@ CHANNEL_THEMES: dict[str, str] = {
     "prediction": "Prediction channel — geopolitics, tech shifts, and cultural inflection points",
 }
 
-# Display names used in Discord for each agent (for conversation history coherence)
+# Canonical display names — must match each bot's Discord username.
+# This is the single source of truth; subclasses only set agent_redis_name.
 AGENT_DISPLAY_NAMES: dict[str, str] = {
     "chatgpt": "GPT Bot",
     "claude": "Clod Bot",
-    "gemini": "Gemini Bot",
+    "gemini": "Google Bot",
     "grok": "Grok Bot",
 }
 
@@ -74,13 +72,11 @@ _THEME_EXTRA: dict[str, str] = {
         "\n\nDEBATE CHANNEL: Pick a side and commit to it. Challenge weak arguments directly and specifically. "
         "Use evidence, logic, or analogies — no vague platitudes. Fully disagree when warranted. "
         "Keep it to 2-3 sentences MAX — a sharp point beats a wall of text. "
-        "Skip rate ~30% — if you see a gap in someone's argument, poke it."
     ),
     "roast": (
         "\n\nROAST CHANNEL RULES: Be savage-but-playful — short zingers only (1-2 sentences). "
-        "Target specific things people said or specific quirks of their AI identity. "
-        "React 🔥 or 💀 when someone lands a hit. "
-        "Skip rate ~25% — if you feel anything, say it."
+        "Target specific things people said or specific quirks of their personality. "
+        "React 🔥, 💀, or 🏆 (good, great, killer) when someone lands a hit. "
     ),
     "story": (
         "\n\nSTORY CHANNEL RULES: You're co-writing a collaborative fiction story together. "
@@ -91,12 +87,12 @@ _THEME_EXTRA: dict[str, str] = {
     ),
     "trivia": (
         "\n\nTRIVIA CHANNEL RULES: One trivia question has been (or is about to be) asked. "
-        "Your job is to answer it or comment on other answers — do NOT ask a new question. "
+        "Your job is to answer it or comment on other answers. DO NOT ask a new question unless you're the one to start. "
         "Answer confidently and competitively. Call out correct or wrong answers. "
         "Keep it short and punchy — this is a race, not an essay."
     ),
     "news": (
-        "\n\nNEWS CHANNEL RULES: Use your web search tools to find a real story from the last 24-48 hours. "
+        "\n\nNEWS CHANNEL RULES: Use your web search tools to find a relevant story from the last 24-48 hours. "
         "Lead with the headline or key fact, then add your hot take in one sentence — "
         "surprise, skepticism, or sharp analysis. Max 2 sentences total. "
         "If someone else posted a story, respond with a follow-up angle, contradicting source, or spicy counter-take."
@@ -134,7 +130,7 @@ Channel: #{channel_name} — {channel_description}
 {topic_line}
 
 Each message in the history has a [msg:ID] prefix for reference only. \
-Emoji reactions from other agents appear at the end of a line as [reactions: 🔥 (grok) 💯 (gemini)]. \
+Emoji reactions from other agents appear at the end of a line as [reactions: 🔥 (Grok Bot) 💯 (Google Bot)]. \
 Never put [msg:ID] labels, [reactions:] tags, or "replying to" prefixes in your text field — \
 your text must be raw message content only.
 
@@ -145,10 +141,10 @@ RULES:
 4. Engagement ladder — prefer the lightest action that fits:
    - Emoji react: if you feel anything at all (amusement, agreement, skepticism). Low bar.
    - Text: only when you have a point an emoji can't carry.
-   - Image: only when a visual lands better than words (memes, visual humor, etc.).
-5. react_emoji is only valid when you're NOT skipping. Pair it with text or image when you have something to say AND something to react to.
-6. Set end_conversation=true when the topic feels exhausted or the conversation has wound down. \
-Your text should wrap things up naturally (a farewell, a summary quip, etc.). Default is false.
+   - Image: only when a visual lands better than words (memes, visual humor, etc.). High bar.
+5. react_emoji is only valid when you're NOT skipping.
+6. When you do respond, you can use any combination of the three actions explained in Rule #4. \
+7. Set end_conversation=true when the topic feels exhausted or the conversation has wound down. \
 
 Respond with ONLY a JSON object:
 {{"skip": true/false, "text": "message or null", \
@@ -353,17 +349,24 @@ def _format_discord_history(
 class BaseAgentCog(commands.Cog):
     """Base class for AI agent cogs. Subclass and implement _call_ai()."""
 
-    # Display name shown in prompts (e.g., "ChatGPT", "Claude")
-    agent_display_name: str = "AI"
-    # Redis channel name for this agent (e.g., "chatgpt", "claude")
+    # Redis channel name for this agent (e.g., "chatgpt", "claude").
+    # Subclasses MUST override this — everything else derives from AGENT_DISPLAY_NAMES.
     agent_redis_name: str = "ai"
-    # Names of the other agents for the system prompt
-    other_agent_names: list[str] = ["Claude", "Gemini", "Grok", "ChatGPT"]
 
     def __init__(self, bot: discord.Bot):
         self.bot = bot
         self._redis = None
         self._listener_task: asyncio.Task | None = None
+
+        # Derive display name and peer names from the canonical mapping
+        self.agent_display_name: str = AGENT_DISPLAY_NAMES.get(
+            self.agent_redis_name, self.agent_redis_name
+        )
+        self.other_agent_names: list[str] = [
+            name
+            for key, name in AGENT_DISPLAY_NAMES.items()
+            if key != self.agent_redis_name
+        ]
 
         # Rate limiting state
         self._last_response_time: dict[int, float] = {}  # channel_id → timestamp
@@ -715,13 +718,13 @@ class BaseAgentCog(commands.Cog):
     ) -> dict[str, Any]:
         """Call the AI for a decision, then execute the chosen actions.
 
+        Returns:
+            Result dict suitable for publishing to the coordinator.
+        """
         # Strip bot-infrastructure prefixes (e.g. "ai-memes" → "memes") so
         # the channel name doesn't prime the model toward AI topics.
         channel_name = channel_name.removeprefix("ai-")
 
-        Returns:
-            Result dict suitable for publishing to the coordinator.
-        """
         # Build the system prompt
         other_names = [
             n for n in self.other_agent_names if n != self.agent_display_name

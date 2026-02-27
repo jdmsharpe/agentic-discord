@@ -16,9 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class AnthropicAgentCog(BaseAgentCog):
-    agent_display_name = "Clod Bot"
     agent_redis_name = "claude"
-    other_agent_names = ["GPT Bot", "Google Bot", "Grok Bot"]
 
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)
@@ -46,40 +44,62 @@ class AnthropicAgentCog(BaseAgentCog):
         return "\n".join(parts) if parts else ""
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
-        # Use Claude + web search to find a relevant image
+        # Use Claude + web search + web fetch to find and retrieve a relevant image.
+        # Flow: search for image pages → fetch a page → extract direct image URL → download.
         try:
             response = await self._client.messages.create(
                 model="claude-opus-4-6",
-                max_tokens=256,
-                tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                max_tokens=1024,
+                tools=[
+                    {"type": "web_search_20250305", "name": "web_search", "max_uses": 3},
+                    {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 3},
+                ],
                 messages=[{
                     "role": "user",
                     "content": (
-                        f"Search the web for an image matching: {prompt}\n\n"
-                        "Reply with ONLY a single direct image URL (https://...). "
-                        "It does not need a file extension — CDN URLs are fine. No other text."
+                        f"Find me a direct image URL for: {prompt}\n\n"
+                        "Steps:\n"
+                        "1. Web search for relevant images (try sites like imgur.com, "
+                        "i.redd.it, pexels.com, unsplash.com, or wikimedia)\n"
+                        "2. Use web_fetch on a promising result page to find the actual "
+                        "image src URL (look for .jpg, .png, .webp, or CDN image URLs)\n"
+                        "3. Reply with ONLY the direct image URL — no other text\n\n"
+                        "The URL must point directly to an image file, not an HTML page."
                     ),
                 }],
             )
-            # Extract the first https URL from Claude's text response
-            url = None
+            # Extract candidate URLs from all text blocks and search result blocks
+            urls: list[str] = []
             for block in response.content:
                 if block.type == "text":
-                    match = re.search(r"https?://\S+", block.text)
-                    if match:
-                        url = match.group(0).rstrip(".,)")
-                        break
+                    for m in re.finditer(r"https?://\S+", block.text):
+                        urls.append(m.group(0).rstrip(".,)\"'"))
+                elif block.type == "web_search_tool_result":
+                    for result in getattr(block, "content", []):
+                        if hasattr(result, "url") and result.url:
+                            urls.append(result.url)
 
-            if not url:
-                logger.info("Claude web search returned no image URL for prompt: %s", prompt[:100])
+            if not urls:
+                logger.info("Claude web search returned no URLs for prompt: %s", prompt[:100])
                 return None
 
+            # Try candidate URLs, preferring ones that look like direct image links
+            image_ext_pattern = re.compile(r"\.(jpg|jpeg|png|gif|webp)", re.IGNORECASE)
+            urls.sort(key=lambda u: (0 if image_ext_pattern.search(u) else 1))
+
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, allow_redirects=True) as resp:
-                    content_type = (resp.content_type or "").split(";")[0].strip()
-                    if resp.status == 200 and content_type.startswith("image/"):
-                        return await resp.read()
-                    logger.warning("Image fetch failed: HTTP %s, type=%s, url=%s", resp.status, content_type, url)
+                for candidate_url in urls[:5]:
+                    try:
+                        async with session.get(candidate_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                            content_type = (resp.content_type or "").split(";")[0].strip()
+                            if resp.status == 200 and content_type.startswith("image/"):
+                                return await resp.read()
+                            logger.debug("Skipping non-image URL: HTTP %s, type=%s, url=%s", resp.status, content_type, candidate_url)
+                    except Exception:
+                        logger.debug("Failed to fetch candidate URL: %s", candidate_url)
+                        continue
+
+            logger.info("No candidate URLs resolved to images for prompt: %s", prompt[:100])
         except Exception:
             logger.exception("Anthropic web image fetch failed")
         return None
