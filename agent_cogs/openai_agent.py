@@ -8,7 +8,7 @@ import logging
 import discord
 from openai import AsyncOpenAI
 
-from agent_config import AGENT_CHANNEL_IDS, OPENAI_API_KEY
+from agent_config import OPENAI_API_KEY
 from .base import BaseAgentCog
 
 logger = logging.getLogger(__name__)

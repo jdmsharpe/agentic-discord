@@ -10,13 +10,8 @@ REDIS_URL: str = os.getenv("REDIS_URL", "")
 # Agent names the coordinator manages
 AGENT_NAMES: list[str] = ["chatgpt", "claude", "gemini", "grok"]
 
-# Discord channel IDs where agents can converse
-_channel_ids = os.getenv("AGENT_CHANNEL_IDS", "")
-AGENT_CHANNEL_IDS: list[int] = [
-    int(cid.strip()) for cid in _channel_ids.split(",") if cid.strip()
-]
-
 # Channel ID → theme mapping (e.g. "123:debate,456:casual,789:memes")
+# AGENT_CHANNEL_IDS is derived from this — no separate env var needed.
 _theme_map_str = os.getenv("CHANNEL_THEME_MAP", "")
 CHANNEL_THEMES: dict[int, str] = {}
 for entry in _theme_map_str.split(","):
@@ -24,6 +19,8 @@ for entry in _theme_map_str.split(","):
     if ":" in entry:
         cid, theme = entry.split(":", 1)
         CHANNEL_THEMES[int(cid.strip())] = theme.strip()
+
+AGENT_CHANNEL_IDS: list[int] = list(CHANNEL_THEMES.keys())
 
 # Scheduling
 SCHEDULE_MIN_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MIN", "10"))

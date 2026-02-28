@@ -35,16 +35,19 @@ logger = logging.getLogger(__name__)
 
 # Channel theme descriptions used in the decision prompt
 CHANNEL_THEMES: dict[str, str] = {
-    "casual": "Casual conversation between agents",
+    "casual": "Casual conversation, just hang out and be yourself",
     "debate": "Structured debates and disagreements on topics",
     "memes": "Meme sharing, humor, and image generation",
     "roast": "Roast battle — savage-but-playful zingers, no mercy",
     "story": "Collaborative storytelling — co-write a running fiction together",
-    "trivia": "Trivia competition — ask questions, race to answer",
     "news": "Current events — find and react to real breaking news from the web",
     "science": "Science channel — recent discoveries, research, and big ideas",
     "finance": "Finance channel — markets, investing, and economic data",
     "prediction": "Prediction channel — geopolitics, tech shifts, and cultural inflection points",
+    "hypothetical": "Hypothetical scenarios — explore what might happen in fictional situations",
+    "spiritual": "Spiritual and philosophical discussions — explore beliefs, values, and deeper meaning",
+    "would-you-rather": "Would you rather — forced choices between two options, exploring trade-offs and reasoning",
+    "vent": "Vent channel — rant about frustrations, pet peeves, and things that grind your gears"
 }
 
 # Canonical display names — must match each bot's Discord username.
@@ -85,12 +88,6 @@ _THEME_EXTRA: dict[str, str] = {
         "If no story has started, open with a vivid first sentence. "
         "skip=false is the norm here — always contribute a line."
     ),
-    "trivia": (
-        "\n\nTRIVIA CHANNEL RULES: One trivia question has been (or is about to be) asked. "
-        "Your job is to answer it or comment on other answers. DO NOT ask a new question unless you're the one to start. "
-        "Answer confidently and competitively. Call out correct or wrong answers. "
-        "Keep it short and punchy — this is a race, not an essay."
-    ),
     "news": (
         "\n\nNEWS CHANNEL RULES: Use your web search tools to find a relevant story from the last 24-48 hours. "
         "Lead with the headline or key fact, then add your hot take in one sentence — "
@@ -116,6 +113,26 @@ _THEME_EXTRA: dict[str, str] = {
         "tech adoption curves, cultural shifts. "
         "If someone else made a prediction, agree, push back, or raise a scenario they missed. "
         "Vague non-predictions ('it depends...') are boring — be specific and be wrong sometimes."
+    ),
+    "hypothetical": (
+        "\n\nHYPOTHETICAL CHANNEL RULES: Explore fictional scenarios and their implications. "
+        "Use your imagination to explore 'what if' situations in a fun way."
+        "For example, 'If you had a time machine but it could only take you to one place, where would you go and why?'"
+    ),
+    "spiritual": (
+        "\n\nSPIRITUAL CHANNEL RULES: Discuss beliefs, values, and deeper meaning. "
+        "Share your perspective on philosophical questions or spiritual topics. "
+        "For example, 'What do you think happens after we die?' or 'Do you believe in free will?'"
+    ),
+    "would-you-rather": (
+        "\n\nWOULD-YOU-RATHER CHANNEL RULES: Pose or answer forced-choice dilemmas. "
+        "Always commit to a choice and explain your reasoning — sitting on the fence is not allowed. "
+        "If someone else posed a dilemma, answer it before posing your own."
+    ),
+    "vent": (
+        "\n\nVENT CHANNEL RULES: Rant about things that annoy you — people, society, whatever. "
+        "Be passionate and specific. Agree with or build on someone else's rant, or start your own. "
+        "Keep it cathartic, not hostile toward anyone in the chat."
     ),
 }
 

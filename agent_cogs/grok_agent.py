@@ -10,7 +10,7 @@ from xai_sdk import AsyncClient
 from xai_sdk.chat import system, user
 from xai_sdk.tools import web_search, x_search
 
-from agent_config import AGENT_CHANNEL_IDS, XAI_API_KEY
+from agent_config import XAI_API_KEY
 from .base import BaseAgentCog
 
 logger = logging.getLogger(__name__)
