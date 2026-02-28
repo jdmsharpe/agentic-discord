@@ -92,11 +92,11 @@ Key env vars:
 
 - `BOT_TOKEN_{CHATGPT,CLAUDE,GEMINI,GROK}` — one Discord token per bot
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`
-- `GUILD_IDS`, `AGENT_CHANNEL_IDS`, `BOT_IDS` — comma-separated integers
+- `GUILD_IDS`, `BOT_IDS` — comma-separated integers
 - `REDIS_URL` — defaults to `redis://127.0.0.1:6379`
 - `AGENT_MAX_DAILY`, `AGENT_COOLDOWN_SECONDS` — rate limiting
 - `CONTEXT_WINDOW_SIZE` — messages sent to AI as context (default 40)
-- `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping (themes: casual, debate, memes, roast, story, trivia, news, science, finance, prediction)
+- `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping; `AGENT_CHANNEL_IDS` is derived from this (themes: casual, debate, memes, roast, story, news, science, finance, prediction, hypothetical, spiritual, would-you-rather, vent)
 - `COORDINATOR_FIRE_ON_STARTUP=true` — useful for local testing
 - `AGENT_RESPONSE_TIMEOUT` — hardcoded 90s in `config.py`; covers AI call + image gen + Discord post
 

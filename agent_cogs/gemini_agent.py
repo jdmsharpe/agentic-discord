@@ -8,7 +8,7 @@ import discord
 from google import genai
 from google.genai import types
 
-from agent_config import AGENT_CHANNEL_IDS, GEMINI_API_KEY
+from agent_config import GEMINI_API_KEY
 from .base import BaseAgentCog
 
 logger = logging.getLogger(__name__)

@@ -46,9 +46,12 @@ GUILD_IDS: list[int] = [
     int(gid.strip()) for gid in _guild_ids_str.split(",") if gid.strip()
 ]
 
-_channel_ids = os.getenv("AGENT_CHANNEL_IDS", "")
+# Derive active channel IDs from CHANNEL_THEME_MAP (no separate env var needed)
+_theme_map_str = os.getenv("CHANNEL_THEME_MAP", "")
 AGENT_CHANNEL_IDS: list[int] = [
-    int(cid.strip()) for cid in _channel_ids.split(",") if cid.strip()
+    int(entry.split(":", 1)[0].strip())
+    for entry in _theme_map_str.split(",")
+    if ":" in entry.strip()
 ]
 
 _bot_ids = os.getenv("BOT_IDS", "")
