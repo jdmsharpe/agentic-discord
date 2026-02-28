@@ -20,7 +20,9 @@ class AnthropicAgentCog(BaseAgentCog):
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)
         if not ANTHROPIC_API_KEY:
-            logger.warning("ANTHROPIC_API_KEY not set — AnthropicAgentCog will not function")
+            logger.warning(
+                "ANTHROPIC_API_KEY not set — AnthropicAgentCog will not function"
+            )
         self._client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
     async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:

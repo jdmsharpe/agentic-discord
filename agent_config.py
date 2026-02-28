@@ -55,9 +55,10 @@ AGENT_CHANNEL_IDS: list[int] = [
 ]
 
 _bot_ids = os.getenv("BOT_IDS", "")
-BOT_IDS: list[int] = [
-    int(bid.strip()) for bid in _bot_ids.split(",") if bid.strip()
-]
+BOT_IDS: list[int] = [int(bid.strip()) for bid in _bot_ids.split(",") if bid.strip()]
+
+# Discord role ID for the shared @bots role — when mentioned, all agents respond
+BOTS_ROLE_ID: int = int(os.getenv("BOTS_ROLE_ID", "0"))
 
 # Rate limiting
 AGENT_MAX_DAILY: int = int(os.getenv("AGENT_MAX_DAILY", "30"))

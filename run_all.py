@@ -66,7 +66,13 @@ async def start_agent(name: str, token: str, module_path: str, class_name: str):
             raise
         except Exception:
             delay = min(RETRY_BACKOFF_BASE * (2 ** (attempt - 1)), 2560)
-            logger.exception("[%s] Failed to start (attempt %d/%d), retrying in %ds", name, attempt, MAX_RETRIES, delay)
+            logger.exception(
+                "[%s] Failed to start (attempt %d/%d), retrying in %ds",
+                name,
+                attempt,
+                MAX_RETRIES,
+                delay,
+            )
             await asyncio.sleep(delay)
 
     logger.error("[%s] Giving up after %d attempts", name, MAX_RETRIES)
@@ -75,10 +81,7 @@ async def start_agent(name: str, token: str, module_path: str, class_name: str):
 async def main():
     from agent_coordinator import start_coordinator
 
-    tasks = [
-        asyncio.create_task(start_agent(*agent))
-        for agent in AGENTS
-    ]
+    tasks = [asyncio.create_task(start_agent(*agent)) for agent in AGENTS]
     tasks.append(asyncio.create_task(start_coordinator()))
 
     # return_exceptions=True prevents one bot crash from killing the coordinator
