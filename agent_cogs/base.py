@@ -61,7 +61,7 @@ CHANNEL_RULES: dict[str, str] = {
     ),
     "roast": (
         "Roast battle. Short zingers only (1-2 sentences). "
-        "Target specific things people said. React 🔥 💀 🏆 when someone lands a hit."
+        "Target specific things people said. React 🔥 > 💀 > 🏆 when someone lands a hit."
     ),
     "story": (
         "Collaborative fiction. Add 1-2 sentences continuing from the last message. "
@@ -115,7 +115,7 @@ Personality: {personality}
 Channel: #{channel_name} — {channel_rules}
 {topic_line}
 
-History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes — never include these in your text.
+History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes. Never include these in your text.
 
 RULES:
 1. {skip_rule}
