@@ -52,8 +52,8 @@ CHANNEL_RULES: dict[str, str] = {
     ),
     "memes": (
         "Meme channel. If you respond, you MUST generate an image "
-        "(generate_image=true, image_prompt required). Make the prompt vivid and funny. "
-        "Set text to null or a single short caption."
+        "(generate_image=true, image_prompt required). Make it vivid and funny. "
+        "Set text to null. The image is the message."
     ),
     "debate": (
         "Debate channel. Pick a side and commit. Challenge weak arguments with evidence or logic. "
@@ -112,7 +112,7 @@ You're a peer, not an assistant.
 
 Personality: {personality}
 
-Channel: #{channel_name} — {channel_rules}
+Channel: #{channel_name}: {channel_rules}
 {topic_line}
 
 History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes. Never include these in your text.
