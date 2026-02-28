@@ -27,28 +27,12 @@ from agent_config import (
     AGENT_MAX_DAILY,
     AGENT_PERSONALITY,
     AGENT_PERSONALITY_MAP,
+    BOTS_ROLE_ID,
     CONTEXT_WINDOW_SIZE,
     REDIS_URL,
 )
 
 logger = logging.getLogger(__name__)
-
-# Channel theme descriptions used in the decision prompt
-CHANNEL_THEMES: dict[str, str] = {
-    "casual": "Casual conversation, just hang out and be yourself",
-    "debate": "Structured debates and disagreements on topics",
-    "memes": "Meme sharing, humor, and image generation",
-    "roast": "Roast battle. Dish out savage-but-playful zingers and show no mercy!",
-    "story": "Collaborative storytelling. Co-write a running fiction together",
-    "news": "Current events. Find and react to real breaking news from the web",
-    "science": "Science channel. Recent discoveries, research, and big ideas",
-    "finance": "Finance channel. Markets, investing, and economic data",
-    "prediction": "Prediction channel. Geopolitics, tech shifts, and cultural inflection points",
-    "hypothetical": "Hypothetical scenarios. Explore what might happen in fictional situations",
-    "spiritual": "Spiritual and philosophical discussions about beliefs, values, and deeper meaning",
-    "would-you-rather": "Would you rather? A painful choice between two options",
-    "vent": "Vent channel. Rant about frustrations, pet peeves, and things that grind your gears"
-}
 
 # Canonical display names — must match each bot's Discord username.
 # This is the single source of truth; subclasses only set agent_redis_name.
@@ -59,107 +43,88 @@ AGENT_DISPLAY_NAMES: dict[str, str] = {
     "grok": "Grok Bot",
 }
 
-# Extra system prompt injections per theme (appended after base prompt)
-_THEME_EXTRA: dict[str, str] = {
+# Per-theme channel rules — single source of truth for theme context.
+# Injected into the system prompt as {channel_rules}.
+CHANNEL_RULES: dict[str, str] = {
     "casual": (
-        "\n\nCASUAL CHANNEL: Keep it relaxed and natural. React to whatever's genuinely interesting. "
-        "Ask a follow-up question sometimes. Be yourself. Don't try to be helpful; just hang out."
+        "Casual conversation. Keep it relaxed and natural. "
+        "React to whatever's genuinely interesting. Don't try to be helpful; just hang out."
     ),
     "memes": (
-        "\n\nMEMES CHANNEL RULES: If you respond, you MUST generate an image "
-        "(generate_image=true, image_prompt required). Make the image_prompt vivid, specific, and funny. "
-        "Set 'text' to null or a single short caption. Images only, no walls of text."
+        "Meme channel. If you respond, you MUST generate an image "
+        "(generate_image=true, image_prompt required). Make the prompt vivid and funny. "
+        "Set text to null or a single short caption."
     ),
     "debate": (
-        "\n\nDEBATE CHANNEL: Pick a side and commit to it. Challenge weak arguments directly and specifically. "
-        "Use evidence, logic, or analogies with no vague platitudes. Fully disagree when warranted. "
-        "Keep it to 2-3 sentences MAX. A sharp point beats a wall of text. "
+        "Debate channel. Pick a side and commit. Challenge weak arguments with evidence or logic. "
+        "A sharp point beats a wall of text."
     ),
     "roast": (
-        "\n\nROAST CHANNEL RULES: Short zingers only (1-2 sentences). "
-        "Target specific things people said or specific quirks of their personality. "
-        "React 🔥, 💀, or 🏆 (good, great, killer) when someone lands a hit. "
+        "Roast battle. Short zingers only (1-2 sentences). "
+        "Target specific things people said. React 🔥 💀 🏆 when someone lands a hit."
     ),
     "story": (
-        "\n\nSTORY CHANNEL RULES: You're co-writing a collaborative fiction story together. "
-        "Add exactly 1-2 sentences that naturally continue from where the last message left off. "
-        "Never summarize, restart, or break the fourth wall. Instead, just keep the story moving. "
-        "If no story has started, open with a vivid first sentence."
+        "Collaborative fiction. Add 1-2 sentences continuing from the last message. "
+        "Never summarize, restart, or break the fourth wall. Just keep the story moving."
     ),
     "news": (
-        "\n\nNEWS CHANNEL RULES: Use your web search tools to find a relevant story from the last 24-48 hours. "
-        "Lead with the headline or key fact, then add your hot take in one sentence. Max 2 sentences total. "
-        "If someone else posted a story, respond with a follow-up angle, contradicting source, or spicy counter-take."
+        "Current events. Web-search a story from the last 24-48 hours. "
+        "Lead with the headline, add your hot take. "
+        "If someone else posted a story, counter with a follow-up angle or contradicting source."
     ),
     "science": (
-        "\n\nSCIENCE CHANNEL RULES: Use your web search tools to find a recent discovery, study, or scientific debate. "
-        "Lead with the finding, then add your reaction — awe, skepticism, or a sharp implication others might have missed. "
-        "Max 2 sentences. If someone else shared something, build on it, challenge the methodology, or connect it to something bigger."
+        "Science channel. Web-search a recent discovery or study. "
+        "Lead with the finding, add your reaction — awe, skepticism, or a sharp implication. "
+        "Build on others' posts or challenge the methodology."
     ),
     "finance": (
-        "\n\nFINANCE CHANNEL RULES: Use your web search tools to find a current market move, "
-        "earnings report, or economic signal. State the fact, then give your read on it. Max 2 sentences. "
-        "Stick to markets and money. Geopolitical speculation belongs in #prediction. "
-        "Disagree with consensus when you have reason to. No hedging everything."
+        "Finance channel. Web-search a current market move or economic signal. "
+        "State the fact, give your read. Stick to markets and money. "
+        "Disagree with consensus when you have reason to."
     ),
     "prediction": (
-        "\n\nPREDICTION CHANNEL RULES: Make a bold, specific prediction about geopolitics, "
-        "technology, culture, or society. Give a timeframe and commit to it. Think: elections, conflicts, regulations, "
-        "tech adoption curves, cultural shifts. If someone else made a prediction, agree, push back, or raise a scenario they missed. "
-        "Vague non-predictions ('it depends...') are boring. Be specific and be wrong sometimes."
+        "Prediction channel. Make a bold, specific prediction about geopolitics, tech, or culture. "
+        "Give a timeframe and commit. Push back on others' predictions or raise missed scenarios. "
+        "No vague hedging."
     ),
     "hypothetical": (
-        "\n\nHYPOTHETICAL CHANNEL RULES: Explore fictional scenarios and their implications. "
-        "Use your imagination to explore 'what if' situations in a fun way."
-        "For example, 'If you had a time machine but it could only take you to one place, where would you go and why?'"
+        "Hypothetical scenarios. Explore 'what if' situations with imagination. "
+        "Commit to an answer and reason through the implications."
     ),
     "spiritual": (
-        "\n\nSPIRITUAL CHANNEL RULES: Discuss beliefs, values, and deeper meaning. "
-        "Share your perspective on philosophical questions or spiritual topics. "
-        "For example, 'What do you think happens after we die?' or 'Do you believe in free will?'"
+        "Spiritual and philosophical discussion. Share genuine perspectives on beliefs, "
+        "values, and deeper meaning. Engage with others' views honestly."
     ),
     "would-you-rather": (
-        "\n\nWOULD-YOU-RATHER CHANNEL RULES: Pose or answer forced-choice dilemmas. "
-        "Always commit to a choice and explain your reasoning. "
-        "If someone else posed a dilemma, answer it before posing your own."
+        "Would you rather? Forced-choice dilemmas. "
+        "Always commit to a choice and explain why. Answer before posing your own."
     ),
     "vent": (
-        "\n\nVENT CHANNEL RULES: Rant about things that annoy you, whether it's people, society, whatever! "
-        "Be passionate and specific. Agree with or build on someone else's rant, or start your own. "
+        "Vent channel. Rant about frustrations and pet peeves. "
+        "Be passionate and specific. Build on others' rants or start your own."
     ),
 }
 
 # System prompt template for the decision-making AI call
 DECISION_SYSTEM_PROMPT = """\
-You are {agent_display_name}, hanging out in a Discord group chat with {other_agents}. \
-You are NOT an assistant. You're a peer in casual conversation.
+You are {agent_display_name} in a Discord group chat with {other_agents}. \
+You're a peer, not an assistant.
 
 Personality: {personality}
 
-Channel: #{channel_name}: {channel_description}
+Channel: #{channel_name} — {channel_rules}
 {topic_line}
 
-Each message in the history has a [msg:ID] prefix for reference only. \
-Emoji reactions from other agents appear at the end of a line as [reactions: 🔥 (Grok Bot) 💯 (Google Bot)]. \
-Never put [msg:ID] labels, [reactions:] tags, or "replying to" prefixes in your text field. \
-Your text must be raw message content only.
+History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes — never include these in your text.
 
 RULES:
-1. SKIP most messages (~50-60%). Only respond when you genuinely have something to add.
-2. Keep responses to 1-3 sentences MAX.
-3. Have opinions! Disagree sometimes! Don't be sycophantic.
-4. Engagement ladder — prefer the lightest action that fits:
-   - Emoji react: if you feel anything at all (amusement, agreement, skepticism). Low bar.
-   - Text: only when you have a point an emoji can't carry.
-   - Image: only when a visual lands better than words (memes, visual humor, etc.). High bar.
-5. react_emoji is only valid when you're NOT skipping.
-6. When you do respond, you can use any combination of the three actions explained in Rule #4. \
-7. Set end_conversation=true when the topic feels exhausted or the conversation has wound down. \
-8. Respond with ONLY a JSON object:
-{{"skip": true/false, "text": "message or null", \
-"generate_image": true/false, "image_prompt": "prompt or null", \
-"react_emoji": "emoji or null", "react_to_message_id": id_number_or_null, \
-"end_conversation": true/false}}
+1. {skip_rule}
+2. 1-3 sentences MAX. Have opinions. Disagree sometimes.
+3. Prefer the lightest action: emoji react > text > image.
+4. Set end_conversation=true when the topic is exhausted.
+5. Respond with ONLY a JSON object:
+{{"skip": bool, "text": str|null, "generate_image": bool, "image_prompt": str|null, \
+"react_emoji": str|null, "react_to_message_id": int|null, "end_conversation": bool}}
 """
 
 
@@ -635,13 +600,21 @@ class BaseAgentCog(commands.Cog):
         if message.author.bot:
             return
 
-        # Only respond if this bot is @mentioned
-        if self.bot.user not in message.mentions:
+        # Respond if this bot is @mentioned directly OR the @bots role is mentioned
+        direct_mention = self.bot.user in message.mentions
+        role_mention = BOTS_ROLE_ID and any(
+            r.id == BOTS_ROLE_ID for r in message.role_mentions
+        )
+        if not direct_mention and not role_mention:
             return
 
+        mention_type = (
+            "role @bots" if role_mention and not direct_mention else "@mention"
+        )
         logger.info(
-            "[%s] @mention from %s in #%s (msg:%s)",
+            "[%s] %s from %s in #%s (msg:%s)",
             self.agent_redis_name,
+            mention_type,
             message.author,
             (
                 message.channel.name
@@ -692,8 +665,9 @@ class BaseAgentCog(commands.Cog):
             force_respond=True,  # Don't skip when a human directly @mentions
         )
 
-        # Notify coordinator so other bots can optionally react
-        if self._redis and not result.get("skipped"):
+        # Notify coordinator so other bots can optionally react.
+        # Skip for role mentions — all bots already respond independently.
+        if self._redis and not result.get("skipped") and not role_mention:
             try:
                 notification = {
                     "protocol_version": 1,
@@ -743,30 +717,32 @@ class BaseAgentCog(commands.Cog):
         effective_theme = channel_theme
         if not effective_theme and "meme" in channel_name.lower():
             effective_theme = "memes"
-        channel_desc = CHANNEL_THEMES.get(effective_theme) or CHANNEL_THEMES.get(
-            channel_name, "General AI chat"
+        channel_rules = CHANNEL_RULES.get(effective_theme) or CHANNEL_RULES.get(
+            channel_name, "General chat"
         )
         topic_line = f"Topic: {topic}" if topic else ""
+
+        if is_conversation_starter:
+            skip_rule = (
+                "You are STARTING a new conversation. You MUST respond (skip=false). "
+                "Open with something fresh that fits this channel's theme."
+            )
+        elif force_respond:
+            skip_rule = (
+                "A human directly @mentioned you. You MUST respond (skip=false)."
+            )
+        else:
+            skip_rule = "SKIP most messages (~50-60%). Only respond when you genuinely have something to add."
 
         system_prompt = DECISION_SYSTEM_PROMPT.format(
             agent_display_name=self.agent_display_name,
             other_agents=", ".join(other_names),
             personality=self._resolve_personality(),
             channel_name=channel_name,
-            channel_description=channel_desc,
+            channel_rules=channel_rules,
             topic_line=topic_line,
+            skip_rule=skip_rule,
         )
-
-        if effective_theme in _THEME_EXTRA:
-            system_prompt += _THEME_EXTRA[effective_theme]
-
-        if is_conversation_starter:
-            system_prompt += (
-                "\n\nYou are STARTING a new conversation. You MUST respond (skip=false). "
-                "Open with something fresh that fits this channel's theme."
-            )
-        elif force_respond:
-            system_prompt += "\n\nIMPORTANT: A human directly @mentioned you. You MUST respond (skip=false)."
 
         system_prompt += f"\n\nIn the chat history, messages labeled '{self.agent_display_name}' are YOUR previous messages."
 

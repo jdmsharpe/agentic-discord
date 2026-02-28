@@ -30,10 +30,17 @@ fake_config.BOT_IDS = [900, 901, 902]
 fake_config.AGENT_MAX_DAILY = 5
 fake_config.AGENT_COOLDOWN_SECONDS = 60
 fake_config.CONTEXT_WINDOW_SIZE = 50
+fake_config.BOTS_ROLE_ID = 55555
 fake_config.REDIS_URL = ""
 sys.modules["agent_config"] = fake_config
 
 from agent_cogs.base import BaseAgentCog, _parse_decision, _format_conversation_history
+
+
+async def _empty_async_iter():
+    """Async iterator that yields nothing — used to mock channel.history()."""
+    return
+    yield  # noqa: makes this an async generator
 
 
 class MockAgentCog(BaseAgentCog):
@@ -95,7 +102,9 @@ class TestParseDecision(unittest.TestCase):
         self.assertEqual(result["text"], "fenced")
 
     def test_unknown_fields_ignored(self):
-        raw = '{"skip": false, "text": "hi", "generate_video": true, "tts_text": "hello"}'
+        raw = (
+            '{"skip": false, "text": "hi", "generate_video": true, "tts_text": "hello"}'
+        )
         result = _parse_decision(raw)
         self.assertFalse(result["skip"])
         self.assertEqual(result["text"], "hi")
@@ -164,7 +173,9 @@ class TestMentionDetection(unittest.TestCase):
     def setUp(self):
         self.cog = MockAgentCog()
 
-    def _make_message(self, author_bot=False, mentions_bot=False, channel_id=100):
+    def _make_message(
+        self, author_bot=False, mentions_bot=False, channel_id=100, role_mention_id=None
+    ):
         msg = MagicMock()
         msg.author = MagicMock()
         msg.author.bot = author_bot
@@ -181,6 +192,13 @@ class TestMentionDetection(unittest.TestCase):
             msg.mentions = [self.cog.bot.user]
         else:
             msg.mentions = []
+
+        if role_mention_id is not None:
+            role = MagicMock()
+            role.id = role_mention_id
+            msg.role_mentions = [role]
+        else:
+            msg.role_mentions = []
 
         return msg
 
@@ -210,6 +228,52 @@ class TestMentionDetection(unittest.TestCase):
         loop = asyncio.new_event_loop()
         loop.run_until_complete(self.cog.on_message(msg))
         loop.close()
+
+    def test_role_mention_triggers_response(self):
+        """@bots role mention should trigger _decide_and_act."""
+        msg = self._make_message(mentions_bot=False, role_mention_id=55555)
+        self.cog._check_rate_limits = MagicMock(return_value=True)
+        self.cog._decide_and_act = AsyncMock(
+            return_value={"skipped": False, "message_id": 111}
+        )
+        # Provide async iterator for channel history
+        msg.channel.history = MagicMock(return_value=_empty_async_iter())
+        msg.guild = MagicMock()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(self.cog.on_message(msg))
+        loop.close()
+
+        self.cog._decide_and_act.assert_called_once()
+        # force_respond should be True
+        _, kwargs = self.cog._decide_and_act.call_args
+        self.assertTrue(kwargs.get("force_respond"))
+
+    def test_role_mention_wrong_id_ignored(self):
+        """A role mention with a different ID than BOTS_ROLE_ID is ignored."""
+        msg = self._make_message(mentions_bot=False, role_mention_id=99999)
+        self.cog._decide_and_act = AsyncMock()
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(self.cog.on_message(msg))
+        loop.close()
+        self.cog._decide_and_act.assert_not_called()
+
+    def test_role_mention_skips_coordinator_notification(self):
+        """Role mentions should NOT publish human_mention_response to coordinator."""
+        msg = self._make_message(mentions_bot=False, role_mention_id=55555)
+        self.cog._check_rate_limits = MagicMock(return_value=True)
+        self.cog._decide_and_act = AsyncMock(
+            return_value={"skipped": False, "message_id": 111}
+        )
+        self.cog._redis = AsyncMock()
+        msg.channel.history = MagicMock(return_value=_empty_async_iter())
+        msg.guild = MagicMock()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(self.cog.on_message(msg))
+        loop.close()
+
+        self.cog._redis.publish.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -269,9 +333,7 @@ class TestActionExecution(unittest.TestCase):
         channel.fetch_message = AsyncMock(return_value=message)
 
         loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(
-            self.cog._add_reaction(channel, 12345, "😂")
-        )
+        result = loop.run_until_complete(self.cog._add_reaction(channel, 12345, "😂"))
         loop.close()
 
         self.assertTrue(result)
@@ -359,9 +421,7 @@ class TestDecideAndAct(unittest.TestCase):
         self.assertEqual(result["emoji_reacted"], "🔥")
 
     def test_image_generation(self):
-        self.cog.mock_ai_response = (
-            '{"skip": false, "text": null, "generate_image": true, "image_prompt": "a cat"}'
-        )
+        self.cog.mock_ai_response = '{"skip": false, "text": null, "generate_image": true, "image_prompt": "a cat"}'
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-memes"
@@ -377,7 +437,9 @@ class TestDecideAndAct(unittest.TestCase):
         self.assertTrue(result.get("image_sent"))
 
     def test_end_conversation_passed_through(self):
-        self.cog.mock_ai_response = '{"skip": false, "text": "Good talk!", "end_conversation": true}'
+        self.cog.mock_ai_response = (
+            '{"skip": false, "text": "Good talk!", "end_conversation": true}'
+        )
         channel = MagicMock()
         sent = MagicMock(id=333)
         channel.send = AsyncMock(return_value=sent)
@@ -410,7 +472,9 @@ class TestDecideAndAct(unittest.TestCase):
         self.assertNotIn("end_conversation", result)
 
     def test_combo_text_and_emoji(self):
-        self.cog.mock_ai_response = '{"skip": false, "text": "Nice!", "react_emoji": "👍"}'
+        self.cog.mock_ai_response = (
+            '{"skip": false, "text": "Nice!", "react_emoji": "👍"}'
+        )
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-general"
@@ -453,7 +517,9 @@ class TestFormatConversationHistory(unittest.TestCase):
         self.assertIn("Clod Bot: Hi there", result)
 
     def test_limits_to_context_window(self):
-        messages = [{"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)]
+        messages = [
+            {"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)
+        ]
         result = _format_conversation_history(messages)
         # Should only contain the last CONTEXT_WINDOW_SIZE (50)
         self.assertNotIn("bot0:", result)
@@ -467,7 +533,9 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "chatgpt", "text": "LOL", "message_id": 124},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]", result)
+        self.assertIn(
+            "[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]", result
+        )
         self.assertIn("[msg:124] GPT Bot: LOL", result)
         # Reaction line should NOT appear as a separate entry
         self.assertNotIn("grok:", result)  # no standalone "grok:" message line
@@ -504,7 +572,11 @@ class TestFormatConversationHistory(unittest.TestCase):
 
     def test_image_entries_pass_through(self):
         messages = [
-            {"agent": "chatgpt", "text": '[posted image: "cat" → https://cdn.example.com/cat.png]', "message_id": 300},
+            {
+                "agent": "chatgpt",
+                "text": '[posted image: "cat" → https://cdn.example.com/cat.png]',
+                "message_id": 300,
+            },
         ]
         result = _format_conversation_history(messages)
         self.assertIn('[posted image: "cat"', result)

@@ -32,17 +32,24 @@ _COG_MAP = {
 
 def main():
     if not BOT_TOKEN:
-        logger.error("No BOT_TOKEN resolved for AGENT_NAME=%s — check your .env", AGENT_NAME)
+        logger.error(
+            "No BOT_TOKEN resolved for AGENT_NAME=%s — check your .env", AGENT_NAME
+        )
         sys.exit(1)
 
     if AGENT_NAME not in _COG_MAP:
-        logger.error("Unknown AGENT_NAME=%s — must be one of: %s", AGENT_NAME, ", ".join(_COG_MAP))
+        logger.error(
+            "Unknown AGENT_NAME=%s — must be one of: %s",
+            AGENT_NAME,
+            ", ".join(_COG_MAP),
+        )
         sys.exit(1)
 
     module_path, class_name = _COG_MAP[AGENT_NAME]
 
     # Lazy import — only loads the SDK for this agent's provider
     import importlib
+
     module = importlib.import_module(module_path)
     CogClass = getattr(module, class_name)
 
@@ -55,7 +62,9 @@ def main():
 
     @bot.event
     async def on_ready():
-        logger.info("Agent '%s' online as %s (ID: %s)", AGENT_NAME, bot.user, bot.user.id)
+        logger.info(
+            "Agent '%s' online as %s (ID: %s)", AGENT_NAME, bot.user, bot.user.id
+        )
 
     bot.add_cog(CogClass(bot=bot))
     logger.info("Starting agent: %s", AGENT_NAME)
