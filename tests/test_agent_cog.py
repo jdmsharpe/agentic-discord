@@ -30,8 +30,20 @@ fake_config.BOT_IDS = [900, 901, 902]
 fake_config.AGENT_MAX_DAILY = 5
 fake_config.AGENT_COOLDOWN_SECONDS = 60
 fake_config.CONTEXT_WINDOW_SIZE = 50
+fake_config.CHANNEL_THEMES = {100: "debate", 200: "memes"}
 fake_config.BOTS_ROLE_ID = 55555
 fake_config.REDIS_URL = ""
+
+
+def _fake_get_context_window(theme=None):
+    if theme:
+        scales = {"debate": 1.0, "memes": 0.35}
+        scale = scales.get(theme, 1.0)
+        return max(5, round(fake_config.CONTEXT_WINDOW_SIZE * scale))
+    return fake_config.CONTEXT_WINDOW_SIZE
+
+
+fake_config.get_context_window = _fake_get_context_window
 sys.modules["agent_config"] = fake_config
 
 from agent_cogs.base import BaseAgentCog, _parse_decision, _format_conversation_history
@@ -521,10 +533,22 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)
         ]
         result = _format_conversation_history(messages)
-        # Should only contain the last CONTEXT_WINDOW_SIZE (50)
+        # No theme → full CONTEXT_WINDOW_SIZE (50)
         self.assertNotIn("bot0:", result)
         self.assertIn("bot74:", result)
         self.assertIn("bot25:", result)
+
+    def test_limits_to_theme_context_window(self):
+        messages = [
+            {"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(30)
+        ]
+        # "memes" theme → 0.35 * 50 = 18
+        result = _format_conversation_history(messages, theme="memes")
+        self.assertNotIn("bot0:", result)
+        self.assertIn("bot29:", result)
+        self.assertIn("bot12:", result)
+        # bot11 should be outside the 18-message window
+        self.assertNotIn("bot11:", result)
 
     def test_reactions_merged_inline(self):
         messages = [

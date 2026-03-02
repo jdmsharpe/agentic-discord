@@ -28,8 +28,9 @@ from agent_config import (
     AGENT_PERSONALITY,
     AGENT_PERSONALITY_MAP,
     BOTS_ROLE_ID,
-    CONTEXT_WINDOW_SIZE,
+    CHANNEL_THEMES,
     REDIS_URL,
+    get_context_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,9 @@ def _relative_time(dt: datetime.datetime) -> str:
     return f"{seconds // 86400}d ago"
 
 
-def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
+def _format_conversation_history(
+    messages: list[dict[str, Any]], theme: str | None = None
+) -> str:
     """Format conversation history from coordinator into a readable string.
 
     Includes message IDs so the AI can target specific messages for replies/reactions.
@@ -197,7 +200,7 @@ def _format_conversation_history(messages: list[dict[str, Any]]) -> str:
     if not messages:
         return "(No messages yet — you're starting the conversation.)"
 
-    windowed = messages[-CONTEXT_WINDOW_SIZE:]
+    windowed = messages[-get_context_window(theme):]
 
     def display_name(agent_name: str) -> str:
         return AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
@@ -264,6 +267,7 @@ def _resolve_mentions(text: str, guild: discord.Guild | None) -> str:
 def _format_discord_history(
     messages: list[discord.Message],
     guild: discord.Guild | None = None,
+    theme: str | None = None,
 ) -> str:
     """Format recent Discord messages into a readable string for context.
 
@@ -514,7 +518,7 @@ class BaseAgentCog(commands.Cog):
         topic = instruction.get("topic", "")
         channel_theme = instruction.get("channel_theme", "")
         conversation_history = instruction.get("conversation_history", [])
-        coordinator_context = _format_conversation_history(conversation_history)
+        coordinator_context = _format_conversation_history(conversation_history, theme=channel_theme)
         is_starter = instruction.get("is_conversation_starter", False)
 
         # On round 1, fetch recent Discord history as backdrop for channel context.
@@ -637,10 +641,12 @@ class BaseAgentCog(commands.Cog):
             return
 
         # Fetch recent channel history for context
+        mention_theme = CHANNEL_THEMES.get(message.channel.id)
+        window = get_context_window(mention_theme)
         history_messages: list[discord.Message] = []
         try:
             async for msg in message.channel.history(
-                limit=CONTEXT_WINDOW_SIZE, before=message
+                limit=window, before=message
             ):
                 history_messages.append(msg)
             history_messages.reverse()
@@ -650,9 +656,9 @@ class BaseAgentCog(commands.Cog):
             )
 
         guild = message.guild
-        context_text = _format_discord_history(history_messages, guild=guild)
+        context_text = _format_discord_history(history_messages, guild=guild, theme=mention_theme)
         # Append the triggering message using the same formatter for consistency
-        context_text += "\n" + _format_discord_history([message], guild=guild)
+        context_text += "\n" + _format_discord_history([message], guild=guild, theme=mention_theme)
 
         result = await self._decide_and_act(
             channel=message.channel,

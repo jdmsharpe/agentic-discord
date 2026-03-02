@@ -2,6 +2,15 @@ import os
 
 from dotenv import load_dotenv
 
+
+def _require_int(name: str) -> int:
+    """Read a required integer env var, raising immediately if missing."""
+    val = os.getenv(name)
+    if val is None:
+        raise RuntimeError(f"Missing required env var: {name}")
+    return int(val)
+
+
 load_dotenv()
 
 # Agent identity — determines which bot token + API key to use
@@ -46,13 +55,16 @@ GUILD_IDS: list[int] = [
     int(gid.strip()) for gid in _guild_ids_str.split(",") if gid.strip()
 ]
 
-# Derive active channel IDs from CHANNEL_THEME_MAP (no separate env var needed)
+# Derive active channel IDs and themes from CHANNEL_THEME_MAP
 _theme_map_str = os.getenv("CHANNEL_THEME_MAP", "")
-AGENT_CHANNEL_IDS: list[int] = [
-    int(entry.split(":", 1)[0].strip())
-    for entry in _theme_map_str.split(",")
-    if ":" in entry.strip()
-]
+CHANNEL_THEMES: dict[int, str] = {}
+for _entry in _theme_map_str.split(","):
+    _entry = _entry.strip()
+    if ":" in _entry:
+        _cid, _theme = _entry.split(":", 1)
+        CHANNEL_THEMES[int(_cid.strip())] = _theme.strip()
+
+AGENT_CHANNEL_IDS: list[int] = list(CHANNEL_THEMES.keys())
 
 _bot_ids = os.getenv("BOT_IDS", "")
 BOT_IDS: list[int] = [int(bid.strip()) for bid in _bot_ids.split(",") if bid.strip()]
@@ -61,11 +73,37 @@ BOT_IDS: list[int] = [int(bid.strip()) for bid in _bot_ids.split(",") if bid.str
 BOTS_ROLE_ID: int = int(os.getenv("BOTS_ROLE_ID", "0"))
 
 # Rate limiting
-AGENT_MAX_DAILY: int = int(os.getenv("AGENT_MAX_DAILY", "30"))
-AGENT_COOLDOWN_SECONDS: int = int(os.getenv("AGENT_COOLDOWN_SECONDS", "120"))
+AGENT_MAX_DAILY: int = _require_int("AGENT_MAX_DAILY")
+AGENT_COOLDOWN_SECONDS: int = _require_int("AGENT_COOLDOWN_SECONDS")
 
-# Context window — how many messages to include for AI context
-CONTEXT_WINDOW_SIZE: int = int(os.getenv("CONTEXT_WINDOW_SIZE", "50"))
+# Context window — how many messages to include for AI context (also the max)
+CONTEXT_WINDOW_SIZE: int = _require_int("CONTEXT_WINDOW_SIZE")
+
+# Per-theme scale factors (1.0 = full CONTEXT_WINDOW_SIZE, lower = fewer messages)
+_THEME_WINDOW_SCALES: dict[str, float] = {
+    "debate": 1.0,
+    "story": 1.0,
+    "hypothetical": 1.0,
+    "prediction": 1.0,
+    "news": 0.8,
+    "science": 0.8,
+    "finance": 0.8,
+    "spiritual": 0.8,
+    "casual": 0.55,
+    "vent": 0.55,
+    "would-you-rather": 0.55,
+    "memes": 0.35,
+    "roast": 0.35,
+}
+
+
+def get_context_window(theme: str | None = None) -> int:
+    """Return the context window size for a theme, scaled from CONTEXT_WINDOW_SIZE."""
+    if theme:
+        scale = _THEME_WINDOW_SCALES.get(theme, 1.0)
+        return max(5, round(CONTEXT_WINDOW_SIZE * scale))
+    return CONTEXT_WINDOW_SIZE
+
 
 # Redis
 REDIS_URL: str = os.getenv("REDIS_URL", "")
