@@ -31,6 +31,12 @@ fake_config.REACTIVE_COOLDOWN_SECONDS = 300.0
 fake_config.FIRE_ON_STARTUP = False
 sys.modules["agent_coordinator.config"] = fake_config
 
+# engine.py imports get_context_window from agent_config
+fake_agent_config = stdlib_types.ModuleType("agent_config")
+fake_agent_config.CONTEXT_WINDOW_SIZE = 50
+fake_agent_config.get_context_window = lambda theme=None: 50
+sys.modules["agent_config"] = fake_agent_config
+
 from agent_coordinator.engine import ConversationEngine, ConversationState
 from agent_coordinator.scheduler import DailyScheduler
 

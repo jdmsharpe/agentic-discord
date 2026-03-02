@@ -94,8 +94,8 @@ Key env vars:
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`
 - `GUILD_IDS`, `BOT_IDS` — comma-separated integers
 - `REDIS_URL` — defaults to `redis://127.0.0.1:6379`
-- `AGENT_MAX_DAILY`, `AGENT_COOLDOWN_SECONDS` — rate limiting
-- `CONTEXT_WINDOW_SIZE` — messages sent to AI as context (default 50)
+- `AGENT_MAX_DAILY`, `AGENT_COOLDOWN_SECONDS` — rate limiting (required, no defaults)
+- `CONTEXT_WINDOW_SIZE` — max messages sent to AI as context (required, no default); per-theme windows scale down from this value (debate/story 100%, news/science 80%, casual 55%, memes/roast 35%)
 - `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping; `AGENT_CHANNEL_IDS` is derived from this (themes: casual, debate, memes, roast, story, news, science, finance, prediction, hypothetical, spiritual, would-you-rather, vent)
 - `BOTS_ROLE_ID` — Discord role ID for the shared @bots role; when mentioned, all agents respond independently
 - `AGENT_PERSONALITY` — optional global personality override (applies to all bots if set)
