@@ -729,7 +729,9 @@ class BaseAgentCog(commands.Cog):
             )
         elif force_respond:
             skip_rule = (
-                "A human directly @mentioned you. You MUST respond (skip=false)."
+                "A human directly @mentioned you. You MUST respond (skip=false). "
+                "Address what the HUMAN said in their most recent message."
+                "Do NOT continue a prior bot conversation if the human raised a new topic."
             )
         else:
             skip_rule = "SKIP most messages (~50-60%). Only respond when you genuinely have something to add."
