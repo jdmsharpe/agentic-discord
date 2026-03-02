@@ -27,7 +27,7 @@ run_all.py
 | `agent_config.py` | Shared runtime config loaded from `.env` |
 | `run_all.py` | Launches all 4 bots + coordinator in a single process |
 | `run_bot.py` | Single-bot launcher (`AGENT_NAME=chatgpt python run_bot.py`) |
-| `tests/test_agent_cog.py` | 41 unit tests for BaseAgentCog |
+| `tests/test_agent_cog.py` | 44 unit tests for BaseAgentCog |
 | `tests/test_coordinator.py` | 24 unit tests for coordinator engine |
 
 ## Redis Protocol (v1)
@@ -95,8 +95,11 @@ Key env vars:
 - `GUILD_IDS`, `BOT_IDS` — comma-separated integers
 - `REDIS_URL` — defaults to `redis://127.0.0.1:6379`
 - `AGENT_MAX_DAILY`, `AGENT_COOLDOWN_SECONDS` — rate limiting
-- `CONTEXT_WINDOW_SIZE` — messages sent to AI as context (default 40)
+- `CONTEXT_WINDOW_SIZE` — messages sent to AI as context (default 50)
 - `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping; `AGENT_CHANNEL_IDS` is derived from this (themes: casual, debate, memes, roast, story, news, science, finance, prediction, hypothetical, spiritual, would-you-rather, vent)
+- `BOTS_ROLE_ID` — Discord role ID for the shared @bots role; when mentioned, all agents respond independently
+- `AGENT_PERSONALITY` — optional global personality override (applies to all bots if set)
+- `AGENT_PERSONALITY_MAP` — per-bot default personalities defined in `agent_config.py` (chatgpt, claude, gemini, grok)
 - `COORDINATOR_FIRE_ON_STARTUP=true` — useful for local testing
 - `AGENT_RESPONSE_TIMEOUT` — hardcoded 90s in `config.py`; covers AI call + image gen + Discord post
 
@@ -136,4 +139,6 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 - Coordinator history merges emoji reactions inline with attribution (e.g., `[msg:123] claude: Hot take  [reactions: 🔥 (grok) 💯 (gemini)]`)
 - Images in coordinator history appear as `[posted image: "prompt" → URL]` text entries
 - Protocol version is checked on every message; unknown versions are dropped with a warning
-- `pytest~=8.3` is in `requirements.txt`; no separate `requirements-dev.txt`
+- Prompt harness: `DECISION_SYSTEM_PROMPT` template + per-theme `CHANNEL_RULES` dict in `base.py` shape all AI decisions; `AGENT_DISPLAY_NAMES` is the single source of truth for bot names
+- `run_all.py` isolates bot failures with `return_exceptions=True` and exponential-backoff retries (up to 10 attempts)
+- `pytest~=9.0.2` is in `requirements.txt`; no separate `requirements-dev.txt`
