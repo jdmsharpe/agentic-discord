@@ -57,7 +57,7 @@ agentic-discord/
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 44 tests
+│   ├── test_agent_cog.py        # 45 tests
 │   └── test_coordinator.py      # 24 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── run_all.py                   # Launch all 4 bots + coordinator
@@ -209,7 +209,7 @@ COORDINATOR_ACTIVE_END=23
 COORDINATOR_MAX_ROUNDS=40
 COORDINATOR_REACTIVE_PROBABILITY=0.15
 COORDINATOR_FIRE_ON_STARTUP=false  # set true for testing
-CONTEXT_WINDOW_SIZE=20       # conversation history messages sent to each agent
+CONTEXT_WINDOW_SIZE=15       # max context messages (per-theme windows scale down from this)
 ```
 
 `AGENT_NAME` is the only per-instance value — passed at runtime, not in .env:
@@ -233,7 +233,7 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 68 tests, preferred
+python -m pytest tests/ -v   # 69 tests, preferred
 python -m unittest discover -s tests -v   # alternative
 ```
 
@@ -243,7 +243,7 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 44 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling |
+| `tests/test_agent_cog.py` | 45 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling |
 | `tests/test_coordinator.py` | 24 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics |
 
 **Key patterns:**

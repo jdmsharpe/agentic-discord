@@ -27,7 +27,7 @@ run_all.py
 | `agent_config.py` | Shared runtime config loaded from `.env` |
 | `run_all.py` | Launches all 4 bots + coordinator in a single process |
 | `run_bot.py` | Single-bot launcher (`AGENT_NAME=chatgpt python run_bot.py`) |
-| `tests/test_agent_cog.py` | 44 unit tests for BaseAgentCog |
+| `tests/test_agent_cog.py` | 45 unit tests for BaseAgentCog |
 | `tests/test_coordinator.py` | 24 unit tests for coordinator engine |
 
 ## Redis Protocol (v1)
