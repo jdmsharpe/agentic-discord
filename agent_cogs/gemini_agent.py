@@ -40,7 +40,7 @@ class GeminiAgentCog(BaseAgentCog):
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
         try:
             response = await self._client.aio.models.generate_content(
-                model="gemini-3-pro-image-preview",
+                model="gemini-3.1-flash-image-preview",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_modalities=["IMAGE"],
