@@ -2,5 +2,11 @@
 py-cord~=2.7
 redis[hiredis]~=7.2
 
+# API dependencies
+anthropic~=0.84
+google-genai~=1.66
+openai~=2.21
+xai-sdk~=1.7
+
 # Dev / testing
 pytest~=9.0.2
