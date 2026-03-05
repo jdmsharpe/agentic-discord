@@ -6,7 +6,7 @@ redis[hiredis]~=7.2
 anthropic~=0.84
 google-genai~=1.66
 openai~=2.21
-xai-sdk~=1.7
+xai-sdk~=1.8
 
 # Dev / testing
 pytest~=9.0.2
