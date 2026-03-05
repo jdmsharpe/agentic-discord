@@ -27,7 +27,7 @@ class GrokAgentCog(BaseAgentCog):
 
     async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
         chat = self._client.chat.create(
-            model="grok-4-1-fast-reasoning",
+            model="grok-4.20-experimental-beta",
             messages=[system(system_prompt), user(user_prompt)],
             tools=[web_search(), x_search()],
         )
