@@ -25,12 +25,12 @@ async def start_coordinator() -> None:
         return
 
     redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-    logger.info("Coordinator connected to Redis at %s", REDIS_URL)
 
     engine = ConversationEngine(redis_client)
     scheduler = DailyScheduler(engine)
 
     await engine.start()
+    logger.info("Coordinator connected to Redis at %s", REDIS_URL)
     await scheduler.start()
 
     if FIRE_ON_STARTUP:

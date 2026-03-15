@@ -481,5 +481,128 @@ class TestEndConversation(unittest.TestCase):
         self.assertFalse(self.engine._should_continue(state))
 
 
+# ---------------------------------------------------------------------------
+# Engine — Redis resilience tests
+# ---------------------------------------------------------------------------
+
+
+class TestRedisResilience(unittest.TestCase):
+    def setUp(self):
+        self.mock_redis = MagicMock()
+        self.engine = ConversationEngine(self.mock_redis)
+
+    def test_wait_for_redis_succeeds_immediately(self):
+        self.mock_redis.ping = AsyncMock(return_value=True)
+
+        async def run():
+            await self.engine._wait_for_redis()
+            self.mock_redis.ping.assert_awaited_once()
+
+        asyncio.run(run())
+
+    def test_wait_for_redis_retries_on_failure(self):
+        self.mock_redis.ping = AsyncMock(
+            side_effect=[ConnectionError("refused"), ConnectionError("refused"), True]
+        )
+
+        async def run():
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                await self.engine._wait_for_redis()
+
+            self.assertEqual(self.mock_redis.ping.await_count, 3)
+            # Backoff: 1s, then 2s
+            self.assertEqual(mock_sleep.await_count, 2)
+            mock_sleep.assert_any_await(1)
+            mock_sleep.assert_any_await(2)
+
+        asyncio.run(run())
+
+    def test_start_calls_wait_for_redis(self):
+        self.mock_redis.ping = AsyncMock(return_value=True)
+
+        async def run():
+            with patch.object(self.engine, "_listen_for_results", new_callable=AsyncMock):
+                await self.engine.start()
+
+            self.mock_redis.ping.assert_awaited_once()
+
+        asyncio.run(run())
+
+    def test_listener_retries_on_subscribe_failure(self):
+        """If pubsub.subscribe() fails, the listener retries instead of dying."""
+        call_count = 0
+
+        mock_pubsub = MagicMock()
+
+        async def fake_subscribe(*channels):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("Redis not ready")
+            # Second call succeeds but we cancel to end the test
+
+        mock_pubsub.subscribe = AsyncMock(side_effect=fake_subscribe)
+
+        async def fake_listen():
+            # Yield one message then stop
+            yield {"type": "subscribe", "data": None}
+            # Cancel to exit the retry loop
+            raise asyncio.CancelledError()
+
+        mock_pubsub.listen = fake_listen
+        self.mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        async def run():
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
+                with self.assertRaises(asyncio.CancelledError):
+                    await self.engine._listen_for_results()
+
+            self.assertEqual(call_count, 2)
+
+        asyncio.run(run())
+
+    def test_listener_routes_results_after_reconnect(self):
+        """After a reconnect, the listener still correctly routes results."""
+        call_count = 0
+        mock_pubsub = MagicMock()
+
+        async def fake_subscribe(*channels):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("blip")
+
+        mock_pubsub.subscribe = AsyncMock(side_effect=fake_subscribe)
+
+        async def fake_listen():
+            yield {"type": "subscribe", "data": None}
+            yield {
+                "type": "message",
+                "data": json.dumps({
+                    "instruction_id": "test-123",
+                    "skipped": False,
+                    "text": "hello",
+                }),
+            }
+            raise asyncio.CancelledError()
+
+        mock_pubsub.listen = fake_listen
+        self.mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            future = loop.create_future()
+            self.engine._pending_responses["test-123"] = future
+
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
+                with self.assertRaises(asyncio.CancelledError):
+                    await self.engine._listen_for_results()
+
+            self.assertTrue(future.done())
+            self.assertEqual(future.result()["text"], "hello")
+
+        asyncio.run(run())
+
+
 if __name__ == "__main__":
     unittest.main()
