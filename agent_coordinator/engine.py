@@ -52,7 +52,10 @@ class ConversationEngine:
         self._result_listener_task: asyncio.Task | None = None
         self._reactive_cooldowns: dict[int, float] = {}
 
+    _LISTENER_MAX_BACKOFF = 30  # seconds
+
     async def start(self) -> None:
+        await self._wait_for_redis()
         self._result_listener_task = asyncio.create_task(self._listen_for_results())
 
     async def stop(self) -> None:
@@ -63,38 +66,63 @@ class ConversationEngine:
             except asyncio.CancelledError:
                 pass
 
+    async def _wait_for_redis(self) -> None:
+        """Block until Redis is reachable. Retries with backoff up to ~30s."""
+        delay = 1
+        while True:
+            try:
+                await self._redis.ping()
+                logger.info("Redis health check passed")
+                return
+            except Exception:
+                logger.warning("Redis not ready, retrying in %ds...", delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self._LISTENER_MAX_BACKOFF)
+
     # ------------------------------------------------------------------
     # Redis result listener
     # ------------------------------------------------------------------
 
     async def _listen_for_results(self) -> None:
-        """Subscribe to all agent result channels and route responses."""
-        pubsub = self._redis.pubsub()
+        """Subscribe to all agent result channels and route responses.
+
+        Automatically retries on connection failures with exponential backoff,
+        making it resilient to Redis restarts and boot-time race conditions.
+        """
         channels = [f"agent:{name}:results" for name in AGENT_NAMES]
-        await pubsub.subscribe(*channels)
-        logger.info("Listening on result channels: %s", channels)
+        delay = 1
 
-        try:
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    data = json.loads(message["data"])
-                    instruction_id = data.get("instruction_id")
+        while True:
+            try:
+                pubsub = self._redis.pubsub()
+                await pubsub.subscribe(*channels)
+                logger.info("Listening on result channels: %s", channels)
+                delay = 1  # reset backoff on successful subscribe
 
-                    if instruction_id and instruction_id in self._pending_responses:
-                        future = self._pending_responses.pop(instruction_id)
-                        if not future.done():
-                            future.set_result(data)
+                async for message in pubsub.listen():
+                    if message["type"] != "message":
+                        continue
+                    try:
+                        data = json.loads(message["data"])
+                        instruction_id = data.get("instruction_id")
 
-                    if data.get("event") == "human_mention_response":
-                        asyncio.create_task(self._maybe_trigger_reactive(data))
-                except Exception:
-                    logger.exception("Error processing agent result")
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Result listener crashed")
+                        if instruction_id and instruction_id in self._pending_responses:
+                            future = self._pending_responses.pop(instruction_id)
+                            if not future.done():
+                                future.set_result(data)
+
+                        if data.get("event") == "human_mention_response":
+                            asyncio.create_task(self._maybe_trigger_reactive(data))
+                    except Exception:
+                        logger.exception("Error processing agent result")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Result listener disconnected, reconnecting in %ds...", delay
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self._LISTENER_MAX_BACKOFF)
 
     # ------------------------------------------------------------------
     # Starter rotation (Redis-backed, survives restarts)
