@@ -15,6 +15,7 @@ import re
 import time
 from abc import abstractmethod
 from collections import defaultdict
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
 
@@ -43,6 +44,55 @@ AGENT_DISPLAY_NAMES: dict[str, str] = {
     "gemini": "Google Bot",
     "grok": "Grok Bot",
 }
+
+
+@dataclass
+class AIResponse:
+    """Normalized response from any AI provider, including token usage."""
+
+    text: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+# Cost per 1M tokens (input, output) for text models, or flat per_image for image models.
+# Update these when provider pricing changes.
+MODEL_PRICING: dict[str, dict[str, float]] = {
+    # Text models — cost per 1M tokens
+    "gpt-5.4-pro": {"input": 2.50, "output": 10.00},
+    "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+    "gemini-3.1-pro-preview": {"input": 1.25, "output": 5.00},
+    "grok-4.20-beta-latest-reasoning": {"input": 3.00, "output": 15.00},
+    # Image models — flat cost per image
+    "gpt-image-1.5": {"per_image": 0.04},
+    "gemini-3.1-flash-image-preview": {"per_image": 0.02},
+    "grok-imagine-image-pro": {"per_image": 0.05},
+}
+
+# Embed accent colors per agent
+AGENT_COLORS: dict[str, int] = {
+    "chatgpt": 0x10A37F,  # OpenAI green
+    "claude": 0xD97757,  # Anthropic orange
+    "gemini": 0x4285F4,  # Google blue
+    "grok": 0x000000,  # xAI black
+}
+
+
+def _compute_token_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Compute cost in USD for a text model call."""
+    pricing = MODEL_PRICING.get(model)
+    if not pricing or "input" not in pricing:
+        return 0.0
+    return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+
+
+def _compute_image_cost(model: str) -> float:
+    """Compute cost in USD for a single image generation."""
+    pricing = MODEL_PRICING.get(model)
+    if not pricing or "per_image" not in pricing:
+        return 0.0
+    return pricing["per_image"]
+
 
 # Per-theme channel rules — single source of truth for theme context.
 # Injected into the system prompt as {channel_rules}.
@@ -330,6 +380,9 @@ class BaseAgentCog(commands.Cog):
     # Redis channel name for this agent (e.g., "chatgpt", "claude").
     # Subclasses MUST override this — everything else derives from AGENT_DISPLAY_NAMES.
     agent_redis_name: str = "ai"
+    # Model identifiers for cost tracking — subclasses should override these.
+    ai_model: str = ""
+    image_model: str = ""
 
     def __init__(self, bot: discord.Bot):
         self.bot = bot
@@ -410,15 +463,15 @@ class BaseAgentCog(commands.Cog):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
-        """Call the AI provider and return the raw text response.
+    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+        """Call the AI provider and return the response with token usage.
 
         Args:
             system_prompt: The decision system prompt with context.
             user_prompt: The conversation history / user message.
 
         Returns:
-            Raw text from the AI (expected to be JSON).
+            AIResponse with raw text (expected JSON) and token counts.
         """
         ...
 
@@ -769,20 +822,29 @@ class BaseAgentCog(commands.Cog):
 
         # Call provider-specific AI
         try:
-            raw_response = await self._call_ai(system_prompt, user_prompt)
+            ai_response = await self._call_ai(system_prompt, user_prompt)
         except Exception:
             logger.exception("AI call failed")
             return {"skipped": True, "error": "ai_call_failed"}
 
-        decision = _parse_decision(raw_response)
+        decision = _parse_decision(ai_response.text)
+
+        # Compute AI call cost
+        ai_cost = _compute_token_cost(
+            self.ai_model, ai_response.input_tokens, ai_response.output_tokens
+        )
+
         logger.info(
-            "[%s] Decision in #%s: skip=%s text=%s image=%s emoji=%s",
+            "[%s] Decision in #%s: skip=%s text=%s image=%s emoji=%s | cost=$%.4f (%d in / %d out)",
             self.agent_redis_name,
             channel_name,
             decision.get("skip"),
             bool(decision.get("text")),
             decision.get("generate_image"),
             decision.get("react_emoji"),
+            ai_cost,
+            ai_response.input_tokens,
+            ai_response.output_tokens,
         )
 
         # In memes channel: force image generation if the agent decided to respond
@@ -817,6 +879,7 @@ class BaseAgentCog(commands.Cog):
                 self._record_response(channel.id if hasattr(channel, "id") else 0)
 
         # Image generation
+        image_cost = 0.0
         if decision.get("generate_image") and decision.get("image_prompt"):
             img_prompt = decision["image_prompt"]
             img_msg = await self._generate_and_send_image(channel, img_prompt)
@@ -827,6 +890,7 @@ class BaseAgentCog(commands.Cog):
                     result["image_url"] = img_msg.attachments[0].url
                 result.setdefault("message_id", img_msg.id)
                 self._record_response(channel.id if hasattr(channel, "id") else 0)
+                image_cost = _compute_image_cost(self.image_model)
 
         # Emoji reaction (AI picks which message to react to)
         emoji = decision.get("react_emoji")
@@ -853,6 +917,33 @@ class BaseAgentCog(commands.Cog):
         # Pass through end_conversation signal for the coordinator
         if decision.get("end_conversation"):
             result["end_conversation"] = True
+
+        # Cost tracking — always log and accumulate, but only send embed
+        # when the bot posted a text message or image (not for emoji-only actions).
+        total_cost = ai_cost + image_cost
+        if total_cost > 0:
+            logger.info(
+                "[%s] Cost: $%.4f (ai=$%.4f img=$%.4f) %d in / %d out",
+                self.agent_redis_name,
+                total_cost,
+                ai_cost,
+                image_cost,
+                ai_response.input_tokens,
+                ai_response.output_tokens,
+            )
+        daily_total = await self._accumulate_cost(
+            ai_cost, image_cost,
+            ai_response.input_tokens, ai_response.output_tokens,
+            image_generated=image_cost > 0,
+        )
+        # Send cost embed only when text or image was posted (not emoji-only or skip)
+        has_visible_post = result.get("text") or result.get("image_sent")
+        if has_visible_post and total_cost > 0:
+            await self._send_cost_embed(
+                channel, ai_cost, image_cost,
+                ai_response.input_tokens, ai_response.output_tokens,
+                daily_total,
+            )
 
         return result
 
@@ -934,6 +1025,72 @@ class BaseAgentCog(commands.Cog):
             )
         except Exception:
             logger.exception("Failed to publish result to Redis")
+
+    # ------------------------------------------------------------------
+    # Cost tracking
+    # ------------------------------------------------------------------
+
+    async def _send_cost_embed(
+        self,
+        channel: discord.abc.Messageable,
+        ai_cost: float,
+        image_cost: float,
+        input_tokens: int,
+        output_tokens: int,
+        daily_total: float,
+    ) -> None:
+        """Send a compact embed showing the cost of this interaction."""
+        total = ai_cost + image_cost
+        color = AGENT_COLORS.get(self.agent_redis_name, 0x2B2D31)
+
+        embed = discord.Embed(color=color)
+        parts = [f"${total:.4f}"]
+        if input_tokens or output_tokens:
+            parts.append(f"{input_tokens:,} in / {output_tokens:,} out")
+        if image_cost > 0:
+            parts.append(f"img ${image_cost:.3f}")
+        parts.append(f"daily ${daily_total:.2f}")
+        embed.set_footer(text=" · ".join(parts))
+
+        try:
+            await channel.send(embed=embed)
+        except Exception:
+            logger.debug("Failed to send cost embed")
+
+    async def _accumulate_cost(
+        self,
+        ai_cost: float,
+        image_cost: float,
+        input_tokens: int,
+        output_tokens: int,
+        image_generated: bool,
+    ) -> float:
+        """Accumulate cost in Redis and return the new daily total.
+
+        Key: agent:{name}:cost:{YYYY-MM-DD} with 48h TTL.
+        Returns 0.0 if Redis is unavailable.
+        """
+        if not self._redis:
+            return 0.0
+        total = ai_cost + image_cost
+        today = time.strftime("%Y-%m-%d")
+        key = f"agent:{self.agent_redis_name}:cost:{today}"
+        try:
+            pipe = self._redis.pipeline()
+            pipe.hincrbyfloat(key, "total_cost", total)
+            pipe.hincrbyfloat(key, "ai_cost", ai_cost)
+            pipe.hincrbyfloat(key, "image_cost", image_cost)
+            pipe.hincrby(key, "input_tokens", input_tokens)
+            pipe.hincrby(key, "output_tokens", output_tokens)
+            pipe.hincrby(key, "ai_calls", 1)
+            if image_generated:
+                pipe.hincrby(key, "image_calls", 1)
+            pipe.expire(key, 172800)  # 48h TTL
+            results = await pipe.execute()
+            return float(results[0])  # new total_cost after increment
+        except Exception:
+            logger.debug("Failed to accumulate cost in Redis")
+            return 0.0
 
     # ------------------------------------------------------------------
     # Rate limiting

@@ -9,13 +9,15 @@ import discord
 from anthropic import AsyncAnthropic
 
 from agent_config import ANTHROPIC_API_KEY
-from .base import BaseAgentCog
+from .base import AIResponse, BaseAgentCog
 
 logger = logging.getLogger(__name__)
 
 
 class AnthropicAgentCog(BaseAgentCog):
     agent_redis_name = "claude"
+    ai_model = "claude-opus-4-6"
+    image_model = ""  # Claude does not support image generation
 
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)
@@ -25,9 +27,9 @@ class AnthropicAgentCog(BaseAgentCog):
             )
         self._client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
+    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
         response = await self._client.messages.create(
-            model="claude-opus-4-6",
+            model=self.ai_model,
             max_tokens=16384,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
@@ -42,7 +44,14 @@ class AnthropicAgentCog(BaseAgentCog):
             if block.type == "text":
                 clean = re.sub(r"</?cite[^>]*>", "", block.text)
                 parts.append(clean)
-        return "\n".join(parts) if parts else ""
+        text = "\n".join(parts) if parts else ""
+        input_tokens = getattr(response.usage, "input_tokens", 0) or 0
+        output_tokens = getattr(response.usage, "output_tokens", 0) or 0
+        return AIResponse(
+            text=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
         # Claude does not support image generation natively

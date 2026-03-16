@@ -19,7 +19,7 @@ run_all.py
 
 | Path | Purpose |
 | --- | --- |
-| `agent_cogs/base.py` | `BaseAgentCog` — shared Redis, rate limits, action execution, decision prompt |
+| `agent_cogs/base.py` | `BaseAgentCog` — shared Redis, rate limits, action execution, decision prompt, cost tracking |
 | `agent_cogs/{openai,anthropic,gemini,grok}_agent.py` | Provider-specific subclasses |
 | `agent_coordinator/engine.py` | Conversation state machine + Redis pub/sub |
 | `agent_coordinator/scheduler.py` | Daily random scheduling (pure asyncio) |
@@ -27,8 +27,8 @@ run_all.py
 | `agent_config.py` | Shared runtime config loaded from `.env` |
 | `run_all.py` | Launches all 4 bots + coordinator in a single process |
 | `run_bot.py` | Single-bot launcher (`AGENT_NAME=chatgpt python run_bot.py`) |
-| `tests/test_agent_cog.py` | 48 unit tests for BaseAgentCog |
-| `tests/test_coordinator.py` | 40 unit tests for coordinator engine |
+| `tests/test_agent_cog.py` | Unit tests for BaseAgentCog |
+| `tests/test_coordinator.py` | Unit tests for coordinator engine |
 
 ## Redis Protocol (v1)
 
@@ -135,8 +135,10 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 
 ## Conventions
 
-- New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` and `_generate_image(prompt)`
+- New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image(prompt)`; set `ai_model` and `image_model` class attributes for cost tracking
 - All Redis keys follow `agent:{name}:*` namespace
+- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, ai_calls, image_calls) with 48h TTL
+- `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image; update when pricing changes
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
 - Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
