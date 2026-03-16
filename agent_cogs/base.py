@@ -330,6 +330,9 @@ def _format_discord_history(
         # Skip Discord system events (pins, boosts, join notices, etc.)
         if msg.is_system():
             continue
+        # Skip embed-only bot messages (cost embeds, etc.) — no conversation value
+        if msg.author.bot and not msg.content and not msg.attachments and msg.embeds:
+            continue
 
         name = msg.author.display_name
 
