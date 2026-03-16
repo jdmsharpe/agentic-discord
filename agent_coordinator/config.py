@@ -4,11 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from agent_config import ACTIVE_AGENT_NAMES
+
 # Redis
 REDIS_URL: str = os.getenv("REDIS_URL", "")
 
-# Agent names the coordinator manages
-AGENT_NAMES: list[str] = ["chatgpt", "claude", "gemini", "grok"]
+# Agent names the coordinator manages — derived from which BOT_TOKEN_* env vars are set
+AGENT_NAMES: list[str] = ACTIVE_AGENT_NAMES
 
 # Channel ID → theme mapping (e.g. "123:debate,456:casual,789:memes")
 # AGENT_CHANNEL_IDS is derived from this — no separate env var needed.
@@ -33,7 +35,7 @@ MAX_ROUNDS: int = int(os.getenv("COORDINATOR_MAX_ROUNDS", "40"))
 AGENT_RESPONSE_TIMEOUT: float = 90.0
 CONTINUATION_BASE_PROBABILITY: float = 0.85
 CONTINUATION_DECAY: float = 0.03
-MIN_RESPONDENTS_TO_CONTINUE: int = 2
+MIN_RESPONDENTS_TO_CONTINUE: int = min(2, len(AGENT_NAMES))
 
 # Health check — exit after this many consecutive timeouts so systemd can restart
 CONSECUTIVE_TIMEOUT_THRESHOLD: int = int(os.getenv("COORDINATOR_TIMEOUT_THRESHOLD", "8"))
