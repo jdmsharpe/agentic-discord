@@ -35,6 +35,9 @@ CONTINUATION_BASE_PROBABILITY: float = 0.85
 CONTINUATION_DECAY: float = 0.03
 MIN_RESPONDENTS_TO_CONTINUE: int = 2
 
+# Health check — exit after this many consecutive timeouts so systemd can restart
+CONSECUTIVE_TIMEOUT_THRESHOLD: int = int(os.getenv("COORDINATOR_TIMEOUT_THRESHOLD", "8"))
+
 # Fire a conversation immediately on startup (for testing)
 FIRE_ON_STARTUP: bool = os.getenv("COORDINATOR_FIRE_ON_STARTUP", "false").lower() in ("true", "1", "yes")
 

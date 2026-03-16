@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import random
 
@@ -18,6 +19,8 @@ from .config import (
 from .engine import ConversationEngine
 
 logger = logging.getLogger(__name__)
+
+_SCHEDULE_KEY_PREFIX = "coordinator:schedule"
 
 
 class DailyScheduler:
@@ -42,7 +45,7 @@ class DailyScheduler:
         """Outer loop: generate today's schedule, execute it, repeat tomorrow."""
         while True:
             try:
-                times = self._generate_todays_times()
+                times = await self._load_or_create_schedule()
                 logger.info(
                     "Today's schedule: %d conversations at %s",
                     len(times),
@@ -90,6 +93,37 @@ class DailyScheduler:
         # Only keep times that haven't passed yet
         times = [t for t in times if t > now]
         times.sort()
+        return times
+
+    async def _load_or_create_schedule(self) -> list[datetime.datetime]:
+        """Load today's schedule from Redis, or generate and persist a new one."""
+        today = datetime.date.today().isoformat()
+        key = f"{_SCHEDULE_KEY_PREFIX}:{today}"
+        now = datetime.datetime.now()
+
+        raw = await self._engine._redis.get(key)
+        if raw:
+            try:
+                stored = json.loads(raw)
+                times = [
+                    datetime.datetime.fromisoformat(t) for t in stored
+                ]
+                # Filter to only future times
+                times = [t for t in times if t > now]
+                if times:
+                    logger.info("Resumed schedule from Redis (%d remaining)", len(times))
+                    return times
+                # All times passed — fall through to generate fresh
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("Corrupt schedule in Redis, regenerating")
+
+        times = self._generate_todays_times()
+        if times:
+            await self._engine._redis.set(
+                key,
+                json.dumps([t.isoformat() for t in times]),
+                ex=172800,  # 48h TTL
+            )
         return times
 
     async def _sleep_until(self, target: datetime.datetime) -> None:

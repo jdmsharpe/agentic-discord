@@ -7,6 +7,7 @@ import datetime
 import json
 import logging
 import random
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from .config import (
     AGENT_CHANNEL_IDS,
     AGENT_NAMES,
     AGENT_RESPONSE_TIMEOUT,
+    CONSECUTIVE_TIMEOUT_THRESHOLD,
     CONTINUATION_BASE_PROBABILITY,
     CONTINUATION_DECAY,
     MAX_ROUNDS,
@@ -51,6 +53,7 @@ class ConversationEngine:
         self._pending_responses: dict[str, asyncio.Future] = {}
         self._result_listener_task: asyncio.Task | None = None
         self._reactive_cooldowns: dict[int, float] = {}
+        self._consecutive_timeouts: int = 0
 
     _LISTENER_MAX_BACKOFF = 30  # seconds
 
@@ -314,10 +317,24 @@ class ConversationEngine:
                 result.get("emoji_reacted"),
                 result.get("end_conversation", False),
             )
+            self._consecutive_timeouts = 0
             return result
         except asyncio.TimeoutError:
-            logger.warning("Agent %s timed out for instruction %s", agent_name, instruction_id)
+            self._consecutive_timeouts += 1
+            logger.warning(
+                "Agent %s timed out for instruction %s (consecutive: %d/%d)",
+                agent_name, instruction_id,
+                self._consecutive_timeouts, CONSECUTIVE_TIMEOUT_THRESHOLD,
+            )
             self._pending_responses.pop(instruction_id, None)
+            if self._consecutive_timeouts >= CONSECUTIVE_TIMEOUT_THRESHOLD:
+                logger.critical(
+                    "Hit %d consecutive timeouts — exiting for systemd restart",
+                    self._consecutive_timeouts,
+                )
+                asyncio.get_event_loop().call_soon(
+                    lambda: sys.exit(1)
+                )
             return {"skipped": True, "reason": "timeout", "agent_name": agent_name}
         except Exception:
             logger.exception("Error sending turn to %s", agent_name)

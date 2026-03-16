@@ -28,6 +28,7 @@ fake_config.CONTINUATION_DECAY = 0.03
 fake_config.MIN_RESPONDENTS_TO_CONTINUE = 2
 fake_config.REACTIVE_TRIGGER_PROBABILITY = 0.15
 fake_config.REACTIVE_COOLDOWN_SECONDS = 300.0
+fake_config.CONSECUTIVE_TIMEOUT_THRESHOLD = 3  # Low threshold for testing
 fake_config.FIRE_ON_STARTUP = False
 sys.modules["agent_coordinator.config"] = fake_config
 
@@ -600,6 +601,203 @@ class TestRedisResilience(unittest.TestCase):
 
             self.assertTrue(future.done())
             self.assertEqual(future.result()["text"], "hello")
+
+        asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Engine — consecutive timeout health-check tests
+# ---------------------------------------------------------------------------
+
+
+class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
+    def setUp(self):
+        self.mock_redis = MagicMock()
+        self.mock_redis.publish = AsyncMock()
+        self.engine = ConversationEngine(self.mock_redis)
+
+    def test_consecutive_timeouts_tracked(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 1
+
+        async def run():
+            result = await self.engine._send_turn(state, "chatgpt")
+            self.assertTrue(result["skipped"])
+            self.assertEqual(self.engine._consecutive_timeouts, 1)
+
+            result = await self.engine._send_turn(state, "claude")
+            self.assertEqual(self.engine._consecutive_timeouts, 2)
+
+        asyncio.run(run())
+
+    def test_successful_response_resets_counter(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 1
+
+        async def run():
+            # First: timeout
+            await self.engine._send_turn(state, "chatgpt")
+            self.assertEqual(self.engine._consecutive_timeouts, 1)
+
+            # Second: success (resolve the future before timeout)
+            async def fake_publish(channel, data):
+                instruction = json.loads(data)
+                iid = instruction["instruction_id"]
+                if iid in self.engine._pending_responses:
+                    self.engine._pending_responses[iid].set_result({
+                        "skipped": False, "text": "hello", "message_id": 1
+                    })
+
+            self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
+            await self.engine._send_turn(state, "claude")
+            self.assertEqual(self.engine._consecutive_timeouts, 0)
+
+        asyncio.run(run())
+
+    def test_threshold_triggers_exit(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 1
+
+        async def run():
+            with patch("agent_coordinator.engine.sys") as mock_sys:
+                for agent in ["chatgpt", "claude", "gemini"]:
+                    await self.engine._send_turn(state, agent)
+                # The exit is scheduled via call_soon; drain the event loop
+                await asyncio.sleep(0)
+                mock_sys.exit.assert_called_once_with(1)
+
+        asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Scheduler — schedule persistence tests
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulePersistence(unittest.TestCase):
+    def setUp(self):
+        self.mock_redis = MagicMock()
+        self.mock_redis.get = AsyncMock(return_value=None)
+        self.mock_redis.set = AsyncMock()
+        self.engine = ConversationEngine(self.mock_redis)
+        self.scheduler = DailyScheduler(self.engine)
+
+    def test_generates_and_saves_when_no_redis_schedule(self):
+        async def run():
+            self.mock_redis.get = AsyncMock(return_value=None)
+            times = await self.scheduler._load_or_create_schedule()
+            # Should have saved to Redis
+            if times:
+                self.mock_redis.set.assert_awaited_once()
+                call_args = self.mock_redis.set.call_args
+                key = call_args[0][0]
+                self.assertIn("coordinator:schedule:", key)
+            return times
+
+        asyncio.run(run())
+
+    def test_loads_existing_schedule_from_redis(self):
+        now = datetime.datetime.now()
+        future_time = now + datetime.timedelta(hours=2)
+        stored = json.dumps([future_time.isoformat()])
+
+        async def run():
+            self.mock_redis.get = AsyncMock(return_value=stored)
+            times = await self.scheduler._load_or_create_schedule()
+            self.assertEqual(len(times), 1)
+            # Should NOT have called set (loaded from Redis)
+            self.mock_redis.set.assert_not_awaited()
+
+        asyncio.run(run())
+
+    def test_filters_past_times_from_redis_schedule(self):
+        now = datetime.datetime.now()
+        past_time = now - datetime.timedelta(hours=1)
+        future_time = now + datetime.timedelta(hours=2)
+        stored = json.dumps([past_time.isoformat(), future_time.isoformat()])
+
+        async def run():
+            self.mock_redis.get = AsyncMock(return_value=stored)
+            times = await self.scheduler._load_or_create_schedule()
+            self.assertEqual(len(times), 1)
+
+        asyncio.run(run())
+
+    def test_regenerates_when_all_redis_times_past(self):
+        now = datetime.datetime.now()
+        past_time = now - datetime.timedelta(hours=1)
+        stored = json.dumps([past_time.isoformat()])
+
+        async def run():
+            self.mock_redis.get = AsyncMock(return_value=stored)
+            times = await self.scheduler._load_or_create_schedule()
+            # Regenerated — may or may not have future times depending on time of day
+            # But set should have been called if new times were generated
+            return times
+
+        asyncio.run(run())
+
+    def test_handles_corrupt_redis_data(self):
+        async def run():
+            self.mock_redis.get = AsyncMock(return_value="not-valid-json{{{")
+            # Should not raise, should regenerate
+            times = await self.scheduler._load_or_create_schedule()
+            return times
+
+        asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Coordinator — bot readiness gate tests
+# ---------------------------------------------------------------------------
+
+
+class TestBotReadinessGate(unittest.TestCase):
+    def test_proceeds_when_all_bots_ready(self):
+        from agent_coordinator.coordinator import _wait_for_bots_ready
+
+        mock_redis = MagicMock()
+        mock_redis.exists = AsyncMock(return_value=1)
+
+        async def run():
+            await _wait_for_bots_ready(mock_redis, timeout=5)
+            # Should have checked all 4 bot keys
+            self.assertTrue(mock_redis.exists.await_count >= 4)
+
+        asyncio.run(run())
+
+    def test_waits_then_proceeds_when_bots_become_ready(self):
+        from agent_coordinator.coordinator import _wait_for_bots_ready
+
+        mock_redis = MagicMock()
+        call_count = 0
+
+        async def fake_exists(key):
+            nonlocal call_count
+            call_count += 1
+            # First round: only 2 of 4 ready; second round: all ready
+            if call_count <= 4:
+                return 1 if call_count <= 2 else 0
+            return 1
+
+        mock_redis.exists = AsyncMock(side_effect=fake_exists)
+
+        async def run():
+            with patch("agent_coordinator.coordinator.asyncio.sleep", new_callable=AsyncMock):
+                await _wait_for_bots_ready(mock_redis, timeout=5)
+
+        asyncio.run(run())
+
+    def test_times_out_with_missing_bots(self):
+        from agent_coordinator.coordinator import _wait_for_bots_ready
+
+        mock_redis = MagicMock()
+        mock_redis.exists = AsyncMock(return_value=0)
+
+        async def run():
+            with patch("agent_coordinator.coordinator.asyncio.sleep", new_callable=AsyncMock):
+                # Should not raise, just warn and proceed
+                await _wait_for_bots_ready(mock_redis, timeout=2)
 
         asyncio.run(run())
 

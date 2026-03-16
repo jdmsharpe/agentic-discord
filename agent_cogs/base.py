@@ -384,6 +384,10 @@ class BaseAgentCog(commands.Cog):
                     "Agent Redis listener started on agent:%s:instructions",
                     self.agent_redis_name,
                 )
+                # Signal readiness so the coordinator knows this bot is live
+                await self._redis.set(
+                    f"agent:{self.agent_redis_name}:ready", "1", ex=300
+                )
             except Exception:
                 logger.exception(
                     "Failed to connect to Redis — running without coordinator"
