@@ -58,7 +58,7 @@ class AIResponse:
 # Human-friendly model names for cost embeds
 MODEL_DISPLAY_NAMES: dict[str, str] = {
     "gpt-5.4-pro": "GPT-5.4 Pro",
-    "claude-opus-4-6": "Claude Opus 4.6",
+    "claude-sonnet-4-6": "Claude Sonnet 4.6",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
     "grok-4.20-beta-latest-reasoning": "Grok 4.20",
     "gpt-image-1.5": "GPT Image 1.5",
@@ -71,7 +71,7 @@ MODEL_DISPLAY_NAMES: dict[str, str] = {
 MODEL_PRICING: dict[str, dict[str, float]] = {
     # Text models — cost per 1M tokens
     "gpt-5.4-pro": {"input": 2.50, "output": 10.00},
-    "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "gemini-3.1-pro-preview": {"input": 1.25, "output": 5.00},
     "grok-4.20-beta-latest-reasoning": {"input": 3.00, "output": 15.00},
     # Image models — flat cost per image
