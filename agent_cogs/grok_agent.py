@@ -34,11 +34,9 @@ class GrokAgentCog(BaseAgentCog):
             tools=[web_search(), x_search()],
         )
         response = await chat.sample()
-        input_tokens = 0
-        output_tokens = 0
-        if hasattr(response, "usage") and response.usage:
-            input_tokens = getattr(response.usage, "input_tokens", 0) or 0
-            output_tokens = getattr(response.usage, "output_tokens", 0) or 0
+        # xAI SDK uses protobuf with OpenAI-style field names
+        input_tokens = getattr(response.usage, "prompt_tokens", 0) or 0
+        output_tokens = getattr(response.usage, "completion_tokens", 0) or 0
         return AIResponse(
             text=response.content or "",
             input_tokens=input_tokens,
