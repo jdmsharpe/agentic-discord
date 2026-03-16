@@ -55,6 +55,17 @@ class AIResponse:
     output_tokens: int = 0
 
 
+# Human-friendly model names for cost embeds
+MODEL_DISPLAY_NAMES: dict[str, str] = {
+    "gpt-5.4-pro": "GPT-5.4 Pro",
+    "claude-opus-4-6": "Claude Opus 4.6",
+    "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+    "grok-4.20-beta-latest-reasoning": "Grok 4.20",
+    "gpt-image-1.5": "GPT Image 1.5",
+    "gemini-3.1-flash-image-preview": "Gemini Flash Image",
+    "grok-imagine-image-pro": "Grok Image Pro",
+}
+
 # Cost per 1M tokens (input, output) for text models, or flat per_image for image models.
 # Update these when provider pricing changes.
 MODEL_PRICING: dict[str, dict[str, float]] = {
@@ -946,6 +957,7 @@ class BaseAgentCog(commands.Cog):
                 channel, ai_cost, image_cost,
                 ai_response.input_tokens, ai_response.output_tokens,
                 daily_total,
+                image_generated=image_cost > 0,
             )
 
         return result
@@ -1041,15 +1053,26 @@ class BaseAgentCog(commands.Cog):
         input_tokens: int,
         output_tokens: int,
         daily_total: float,
+        image_generated: bool = False,
     ) -> None:
         """Send a compact embed showing the cost of this interaction."""
         total = ai_cost + image_cost
         color = AGENT_COLORS.get(self.agent_redis_name, 0x2B2D31)
 
-        embed = discord.Embed(color=color)
+        # Model line: "Claude Opus 4.6 · GPT Image 1.5" or "Grok 4.20 · no image model"
+        ai_display = MODEL_DISPLAY_NAMES.get(self.ai_model, self.ai_model)
+        if image_generated:
+            img_display = MODEL_DISPLAY_NAMES.get(self.image_model, self.image_model)
+            model_line = f"{ai_display} · {img_display}"
+        elif self.image_model:
+            model_line = ai_display
+        else:
+            model_line = f"{ai_display} · no image model"
+
+        embed = discord.Embed(description=model_line, color=color)
         parts = [f"${total:.4f}"]
         if input_tokens or output_tokens:
-            parts.append(f"{input_tokens:,} in / {output_tokens:,} out")
+            parts.append(f"{input_tokens:,} tokens in / {output_tokens:,} tokens out")
         if image_cost > 0:
             parts.append(f"img ${image_cost:.3f}")
         parts.append(f"daily ${daily_total:.2f}")
