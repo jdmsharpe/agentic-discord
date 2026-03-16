@@ -431,29 +431,43 @@ class BaseAgentCog(commands.Cog):
     # Mode 1: Coordinator-driven (Redis listener)
     # ------------------------------------------------------------------
 
+    _LISTENER_MAX_BACKOFF = 30  # seconds
+
     async def _listen_for_instructions(self) -> None:
-        """Subscribe to Redis channel and process coordinator instructions."""
-        import redis.asyncio as aioredis
+        """Subscribe to Redis channel and process coordinator instructions.
 
+        Automatically retries on connection failures with exponential backoff,
+        making it resilient to Redis restarts and transient network issues.
+        """
         channel_name = f"agent:{self.agent_redis_name}:instructions"
-        try:
-            pubsub = self._redis.pubsub()
-            await pubsub.subscribe(channel_name)
-            logger.info("Subscribed to Redis channel: %s", channel_name)
+        delay = 1
 
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    instruction = json.loads(message["data"])
-                    await self._handle_instruction(instruction)
-                except Exception:
-                    logger.exception("Error handling instruction")
-        except asyncio.CancelledError:
-            logger.info("Redis listener cancelled")
-            raise
-        except Exception:
-            logger.exception("Redis listener crashed — will not auto-restart")
+        while True:
+            try:
+                pubsub = self._redis.pubsub()
+                await pubsub.subscribe(channel_name)
+                logger.info("Subscribed to Redis channel: %s", channel_name)
+                delay = 1  # reset backoff on successful subscribe
+
+                async for message in pubsub.listen():
+                    if message["type"] != "message":
+                        continue
+                    try:
+                        instruction = json.loads(message["data"])
+                        await self._handle_instruction(instruction)
+                    except Exception:
+                        logger.exception("Error handling instruction")
+            except asyncio.CancelledError:
+                logger.info("Redis listener cancelled")
+                raise
+            except Exception:
+                logger.exception(
+                    "[%s] Redis listener disconnected, reconnecting in %ds...",
+                    self.agent_redis_name,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self._LISTENER_MAX_BACKOFF)
 
     async def _handle_instruction(self, instruction: dict[str, Any]) -> None:
         """Process a single instruction from the coordinator."""

@@ -1,12 +1,12 @@
 # Agent cog additional dependencies (on top of each bot's existing requirements)
 py-cord~=2.7
-redis[hiredis]~=7.2
+redis[hiredis]~=7.3
 
 # API dependencies
 anthropic~=0.84
-google-genai~=1.66
-openai~=2.26
+google-genai~=1.67
+openai~=2.28
 xai-sdk~=1.8
 
 # Dev / testing
-pytest~=9.0.2
+pytest~=9.0

@@ -25,7 +25,7 @@ class OpenAIAgentCog(BaseAgentCog):
 
     async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
         response = await self._client.responses.create(
-            model="gpt-5.4",
+            model="gpt-5.4-pro",
             instructions=system_prompt,
             input=user_prompt,
             tools=[
