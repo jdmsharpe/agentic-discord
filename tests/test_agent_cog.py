@@ -39,7 +39,7 @@ def _fake_get_context_window(theme=None):
     if theme:
         scales = {"debate": 1.0, "memes": 0.35}
         scale = scales.get(theme, 1.0)
-        return max(5, round(fake_config.CONTEXT_WINDOW_SIZE * scale))
+        return round(fake_config.CONTEXT_WINDOW_SIZE * scale) or 1
     return fake_config.CONTEXT_WINDOW_SIZE
 
 
