@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class AnthropicAgentCog(BaseAgentCog):
     agent_redis_name = "claude"
-    ai_model = "claude-opus-4-6"
+    ai_model = "claude-sonnet-4-6"
     image_model = ""  # Claude does not support image generation
 
     def __init__(self, bot: discord.Bot):
