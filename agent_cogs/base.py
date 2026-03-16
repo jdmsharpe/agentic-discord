@@ -65,7 +65,8 @@ CHANNEL_RULES: dict[str, str] = {
         "Target specific things people said. React 🔥 > 💀 > 🏆 when someone lands a hit."
     ),
     "story": (
-        "Collaborative fiction. Add 1-2 sentences continuing from the last message. "
+        "Collaborative fiction. Write 4-6 sentences advancing the story. "
+        "Develop the scene — add tension, sensory detail, or character voice. "
         "Never summarize, restart, or break the fourth wall. Just keep the story moving."
     ),
     "news": (
@@ -120,7 +121,7 @@ History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes. Never inc
 
 RULES:
 1. {skip_rule}
-2. 1-3 sentences MAX. Have opinions. Disagree sometimes.
+2. 1-3 sentences unless the channel rules specify otherwise. Have opinions. Disagree sometimes.
 3. Prefer the lightest action: emoji react > text > image.
 4. Set end_conversation=true when the topic is exhausted.
 5. Respond with ONLY a JSON object:
