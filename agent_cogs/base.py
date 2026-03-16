@@ -1060,15 +1060,13 @@ class BaseAgentCog(commands.Cog):
         total = ai_cost + image_cost
         color = AGENT_COLORS.get(self.agent_redis_name, 0x2B2D31)
 
-        # Model line: "Claude Opus 4.6 · GPT Image 1.5" or "Grok 4.20 · no image model"
+        # Model line: "Claude Opus 4.6 · GPT Image 1.5" or just "Claude Opus 4.6"
         ai_display = MODEL_DISPLAY_NAMES.get(self.ai_model, self.ai_model)
         if image_generated:
             img_display = MODEL_DISPLAY_NAMES.get(self.image_model, self.image_model)
             model_line = f"{ai_display} · {img_display}"
-        elif self.image_model:
-            model_line = ai_display
         else:
-            model_line = f"{ai_display} · no image model"
+            model_line = ai_display
 
         embed = discord.Embed(description=model_line, color=color)
         parts = [f"${total:.4f}"]
