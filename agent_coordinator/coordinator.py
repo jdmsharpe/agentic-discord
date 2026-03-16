@@ -43,6 +43,12 @@ async def _wait_for_bots_ready(redis_client, timeout: float = _BOT_READY_TIMEOUT
 
 async def start_coordinator() -> None:
     """Main async entry point for the coordinator."""
+    if not AGENT_NAMES:
+        logger.error("No agents configured — set at least one BOT_TOKEN_* env var")
+        return
+
+    logger.info("Active agents: %s", AGENT_NAMES)
+
     if not REDIS_URL:
         logger.error("REDIS_URL is required for the coordinator")
         return
