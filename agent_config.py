@@ -32,6 +32,9 @@ _TOKEN_MAP: dict[str, str] = {
 }
 BOT_TOKEN: str = _TOKEN_MAP.get(AGENT_NAME, "")
 
+# Which agents have bot tokens configured (i.e. are actually runnable)
+ACTIVE_AGENT_NAMES: list[str] = [name for name, token in _TOKEN_MAP.items() if token]
+
 # API keys
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
