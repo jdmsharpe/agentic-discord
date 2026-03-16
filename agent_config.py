@@ -80,6 +80,9 @@ BOTS_ROLE_ID: int = int(os.getenv("BOTS_ROLE_ID", "0"))
 AGENT_MAX_DAILY: int = _require_int("AGENT_MAX_DAILY")
 AGENT_COOLDOWN_SECONDS: int = _require_int("AGENT_COOLDOWN_SECONDS")
 
+# Whether to send cost embed messages after each AI call
+SHOW_COST_EMBEDS: bool = os.getenv("SHOW_COST_EMBEDS", "true").lower() in ("true", "1", "yes")
+
 # Context window — how many messages to include for AI context (also the max)
 CONTEXT_WINDOW_SIZE: int = _require_int("CONTEXT_WINDOW_SIZE")
 if CONTEXT_WINDOW_SIZE < 1:

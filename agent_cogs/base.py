@@ -31,6 +31,7 @@ from agent_config import (
     BOTS_ROLE_ID,
     CHANNEL_THEMES,
     REDIS_URL,
+    SHOW_COST_EMBEDS,
     get_context_window,
 )
 
@@ -950,9 +951,9 @@ class BaseAgentCog(commands.Cog):
             ai_response.input_tokens, ai_response.output_tokens,
             image_generated=image_cost > 0,
         )
-        # Send cost embed only when text or image was posted (not emoji-only or skip)
+        # Send cost embed only when enabled and text or image was posted (not emoji-only or skip)
         has_visible_post = result.get("text") or result.get("image_sent")
-        if has_visible_post and total_cost > 0:
+        if SHOW_COST_EMBEDS and has_visible_post and total_cost > 0:
             await self._send_cost_embed(
                 channel, ai_cost, image_cost,
                 ai_response.input_tokens, ai_response.output_tokens,
