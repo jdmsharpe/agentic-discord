@@ -70,14 +70,14 @@ MODEL_DISPLAY_NAMES: dict[str, str] = {
 # Update these when provider pricing changes.
 MODEL_PRICING: dict[str, dict[str, float]] = {
     # Text models — cost per 1M tokens
-    "gpt-5.4-pro": {"input": 2.50, "output": 10.00},
+    "gpt-5.4-pro": {"input": 3.00, "output": 12.00},
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
-    "gemini-3.1-pro-preview": {"input": 1.25, "output": 5.00},
-    "grok-4.20-beta-latest-reasoning": {"input": 3.00, "output": 15.00},
+    "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
+    "grok-4.20-beta-latest-reasoning": {"input": 2.00, "output": 6.00},
     # Image models — flat cost per image
     "gpt-image-1.5": {"per_image": 0.04},
     "gemini-3.1-flash-image-preview": {"per_image": 0.02},
-    "grok-imagine-image-pro": {"per_image": 0.05},
+    "grok-imagine-image-pro": {"per_image": 0.07},
 }
 
 # Embed accent colors per agent

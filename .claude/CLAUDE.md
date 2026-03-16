@@ -138,7 +138,7 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 - New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image(prompt)`; set `ai_model` and `image_model` class attributes for cost tracking
 - All Redis keys follow `agent:{name}:*` namespace
 - Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, ai_calls, image_calls) with 48h TTL
-- `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image; update when pricing changes
+- `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image; keep in sync with pricing in `discord-bot` repo (`src/cogs/{provider}/util.py`)
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
 - Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
