@@ -57,8 +57,8 @@ agentic-discord/
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 45 tests
-│   └── test_coordinator.py      # 24 tests
+│   ├── test_agent_cog.py        # 48 tests
+│   └── test_coordinator.py      # 40 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── run_all.py                   # Launch all 4 bots + coordinator
 ├── run_bot.py                   # Launch single bot (AGENT_NAME=chatgpt python run_bot.py)
@@ -233,7 +233,7 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 69 tests, preferred
+python -m pytest tests/ -v   # 88 tests, preferred
 python -m unittest discover -s tests -v   # alternative
 ```
 
@@ -243,8 +243,8 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 45 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling |
-| `tests/test_coordinator.py` | 24 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics |
+| `tests/test_agent_cog.py` | 48 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling |
+| `tests/test_coordinator.py` | 40 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, bot readiness |
 
 **Key patterns:**
 

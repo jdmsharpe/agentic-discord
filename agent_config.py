@@ -1,3 +1,4 @@
+import math
 import os
 
 from dotenv import load_dotenv
@@ -78,6 +79,8 @@ AGENT_COOLDOWN_SECONDS: int = _require_int("AGENT_COOLDOWN_SECONDS")
 
 # Context window — how many messages to include for AI context (also the max)
 CONTEXT_WINDOW_SIZE: int = _require_int("CONTEXT_WINDOW_SIZE")
+if CONTEXT_WINDOW_SIZE < 1:
+    raise RuntimeError(f"CONTEXT_WINDOW_SIZE must be >= 1, got {CONTEXT_WINDOW_SIZE}")
 
 # Per-theme scale factors (1.0 = full CONTEXT_WINDOW_SIZE, lower = fewer messages)
 _THEME_WINDOW_SCALES: dict[str, float] = {
@@ -101,7 +104,7 @@ def get_context_window(theme: str | None = None) -> int:
     """Return the context window size for a theme, scaled from CONTEXT_WINDOW_SIZE."""
     if theme:
         scale = _THEME_WINDOW_SCALES.get(theme, 1.0)
-        return round(CONTEXT_WINDOW_SIZE * scale) or 1
+        return max(1, math.ceil(CONTEXT_WINDOW_SIZE * scale))
     return CONTEXT_WINDOW_SIZE
 
 
