@@ -115,7 +115,6 @@ You're a peer, not an assistant.
 Personality: {personality}
 
 Channel: #{channel_name}: {channel_rules}
-{topic_line}
 
 History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes. Never include these in your text.
 
@@ -534,7 +533,6 @@ class BaseAgentCog(commands.Cog):
             instruction.get("is_conversation_starter"),
         )
 
-        topic = instruction.get("topic", "")
         channel_theme = instruction.get("channel_theme", "")
         conversation_history = instruction.get("conversation_history", [])
         coordinator_context = _format_conversation_history(conversation_history, theme=channel_theme)
@@ -566,7 +564,6 @@ class BaseAgentCog(commands.Cog):
         result = await self._decide_and_act(
             channel=channel,
             context_text=context_str,
-            topic=topic,
             channel_name=channel.name if hasattr(channel, "name") else str(channel_id),
             channel_theme=channel_theme,
             react_to_message_id=self._last_message_id_from_history(
@@ -682,7 +679,6 @@ class BaseAgentCog(commands.Cog):
         result = await self._decide_and_act(
             channel=message.channel,
             context_text=context_text,
-            topic="",
             channel_name=(
                 message.channel.name if hasattr(message.channel, "name") else ""
             ),
@@ -717,7 +713,6 @@ class BaseAgentCog(commands.Cog):
         self,
         channel: discord.abc.Messageable,
         context_text: str,
-        topic: str,
         channel_name: str,
         channel_theme: str = "",
         react_to_message_id: int | None = None,
@@ -745,8 +740,6 @@ class BaseAgentCog(commands.Cog):
         channel_rules = CHANNEL_RULES.get(effective_theme) or CHANNEL_RULES.get(
             channel_name, "General chat"
         )
-        topic_line = f"Topic: {topic}" if topic else ""
-
         if is_conversation_starter:
             skip_rule = (
                 "You are STARTING a new conversation. You MUST respond (skip=false). "
@@ -767,7 +760,6 @@ class BaseAgentCog(commands.Cog):
             personality=self._resolve_personality(),
             channel_name=channel_name,
             channel_rules=channel_rules,
-            topic_line=topic_line,
             skip_rule=skip_rule,
         )
 

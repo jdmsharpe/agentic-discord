@@ -3,8 +3,6 @@
 import asyncio
 import logging
 import importlib
-import signal
-import sys
 
 from discord import Bot, Intents
 
