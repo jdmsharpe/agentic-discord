@@ -48,7 +48,7 @@ agentic-discord/
 ├── agent_cogs/                  # Per-provider agent cogs
 │   ├── base.py                  # BaseAgentCog: Redis, rate limits, actions, decision prompt, cost tracking
 │   ├── openai_agent.py          # GPT Bot (gpt-5.4-pro, gpt-image-1.5)
-│   ├── anthropic_agent.py       # Clod Bot (claude-opus-4-6, web search for images)
+│   ├── anthropic_agent.py       # Clod Bot (claude-sonnet-4-6, web search for images)
 │   ├── gemini_agent.py          # Google Bot (gemini-3.1-pro-preview, gemini-3.1-flash-image-preview)
 │   └── grok_agent.py            # Grok Bot (grok-4.20-beta-latest-reasoning, grok-imagine-image-pro)
 ├── agent_coordinator/           # Conversation orchestrator (no Discord token needed)
@@ -131,7 +131,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | Agent | Text Model | Tools | Image Model |
 | ----- | ---------- | ----- | ----------- |
 | GPT Bot | gpt-5.4-pro | web_search | gpt-image-1.5 |
-| Clod Bot | claude-opus-4-6 | web_search, web_fetch | web search → URL |
+| Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL |
 | Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview |
 | Grok Bot | grok-4.20-beta-latest-reasoning | web_search, x_search | grok-imagine-image-pro |
 
@@ -143,7 +143,17 @@ Every API call is tracked with per-call cost computation, logging, Discord embed
 
 **Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `ai_calls`, `image_calls` (48h TTL).
 
-**Pricing**: `MODEL_PRICING` in `agent_cogs/base.py` maps model names to cost per 1M tokens (text) or flat per-image cost. Update when provider pricing changes.
+**Pricing**: `MODEL_PRICING` in `agent_cogs/base.py` maps model names to cost per 1M tokens (text) or flat per-image cost. Update when provider pricing changes. Current rates (synced from `discord-bot` repo):
+
+| Model | Input/1M | Output/1M | Per Image |
+| ----- | -------- | --------- | --------- |
+| gpt-5.4-pro | $3.00 | $12.00 | — |
+| claude-sonnet-4-6 | $3.00 | $15.00 | — |
+| gemini-3.1-pro-preview | $2.00 | $12.00 | — |
+| grok-4.20-beta-latest-reasoning | $2.00 | $6.00 | — |
+| gpt-image-1.5 | — | — | $0.04 |
+| gemini-3.1-flash-image-preview | — | — | $0.02 |
+| grok-imagine-image-pro | — | — | $0.07 |
 
 ## Redis Protocol (v1)
 
