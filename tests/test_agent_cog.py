@@ -33,6 +33,7 @@ fake_config.CONTEXT_WINDOW_SIZE = 50
 fake_config.CHANNEL_THEMES = {100: "debate", 200: "memes"}
 fake_config.BOTS_ROLE_ID = 55555
 fake_config.REDIS_URL = ""
+fake_config.SHOW_COST_EMBEDS = True
 
 
 def _fake_get_context_window(theme=None):
