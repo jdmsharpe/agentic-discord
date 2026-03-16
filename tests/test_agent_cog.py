@@ -689,5 +689,92 @@ class TestHandleInstruction(unittest.TestCase):
         self.assertEqual(result_payload["reason"], "rate_limited")
 
 
+# ---------------------------------------------------------------------------
+# Redis listener retry tests
+# ---------------------------------------------------------------------------
+
+
+class TestListenerRetry(unittest.TestCase):
+    def setUp(self):
+        self.cog = MockAgentCog()
+        self.cog._redis = MagicMock()
+
+    def test_retries_on_subscribe_failure(self):
+        """If pubsub.subscribe() fails, the listener retries instead of dying."""
+        call_count = 0
+        mock_pubsub = MagicMock()
+
+        async def fake_subscribe(*channels):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("Redis not ready")
+
+        mock_pubsub.subscribe = AsyncMock(side_effect=fake_subscribe)
+
+        async def fake_listen():
+            yield {"type": "subscribe", "data": None}
+            raise asyncio.CancelledError()
+
+        mock_pubsub.listen = fake_listen
+        self.cog._redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        async def run():
+            with patch("agent_cogs.base.asyncio.sleep", new_callable=AsyncMock):
+                with self.assertRaises(asyncio.CancelledError):
+                    await self.cog._listen_for_instructions()
+
+            self.assertEqual(call_count, 2)
+
+        asyncio.run(run())
+
+    def test_cancelled_error_propagates(self):
+        """CancelledError should not be caught by the retry loop."""
+        mock_pubsub = MagicMock()
+        mock_pubsub.subscribe = AsyncMock(side_effect=asyncio.CancelledError())
+        self.cog._redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        async def run():
+            with self.assertRaises(asyncio.CancelledError):
+                await self.cog._listen_for_instructions()
+
+        asyncio.run(run())
+
+    def test_backoff_increases_then_caps(self):
+        """Delay should double each failure, capping at _LISTENER_MAX_BACKOFF."""
+        call_count = 0
+        mock_pubsub = MagicMock()
+        sleep_values = []
+
+        async def fake_subscribe(*channels):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 6:
+                raise ConnectionError("still down")
+            # 7th call succeeds
+
+        mock_pubsub.subscribe = AsyncMock(side_effect=fake_subscribe)
+
+        async def fake_listen():
+            yield {"type": "subscribe", "data": None}
+            raise asyncio.CancelledError()
+
+        mock_pubsub.listen = fake_listen
+        self.cog._redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+        async def run():
+            async def track_sleep(seconds):
+                sleep_values.append(seconds)
+
+            with patch("agent_cogs.base.asyncio.sleep", side_effect=track_sleep):
+                with self.assertRaises(asyncio.CancelledError):
+                    await self.cog._listen_for_instructions()
+
+            # 6 failures → sleeps of 1, 2, 4, 8, 16, 30 (capped)
+            self.assertEqual(sleep_values, [1, 2, 4, 8, 16, 30])
+
+        asyncio.run(run())
+
+
 if __name__ == "__main__":
     unittest.main()
