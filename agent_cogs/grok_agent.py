@@ -11,13 +11,15 @@ from xai_sdk.chat import system, user
 from xai_sdk.tools import web_search, x_search
 
 from agent_config import XAI_API_KEY
-from .base import BaseAgentCog
+from .base import AIResponse, BaseAgentCog
 
 logger = logging.getLogger(__name__)
 
 
 class GrokAgentCog(BaseAgentCog):
     agent_redis_name = "grok"
+    ai_model = "grok-4.20-beta-latest-reasoning"
+    image_model = "grok-imagine-image-pro"
 
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)
@@ -25,14 +27,23 @@ class GrokAgentCog(BaseAgentCog):
             logger.warning("XAI_API_KEY not set — GrokAgentCog will not function")
         self._client = AsyncClient(api_key=XAI_API_KEY)
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
+    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
         chat = self._client.chat.create(
-            model="grok-4.20-beta-latest-reasoning",
+            model=self.ai_model,
             messages=[system(system_prompt), user(user_prompt)],
             tools=[web_search(), x_search()],
         )
         response = await chat.sample()
-        return response.content or ""
+        input_tokens = 0
+        output_tokens = 0
+        if hasattr(response, "usage") and response.usage:
+            input_tokens = getattr(response.usage, "input_tokens", 0) or 0
+            output_tokens = getattr(response.usage, "output_tokens", 0) or 0
+        return AIResponse(
+            text=response.content or "",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
         try:
