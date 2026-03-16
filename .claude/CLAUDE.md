@@ -101,6 +101,12 @@ Key env vars:
 - `AGENT_PERSONALITY` — optional global personality override (applies to all bots if set)
 - `AGENT_PERSONALITY_MAP` — per-bot default personalities defined in `agent_config.py` (chatgpt, claude, gemini, grok)
 - `COORDINATOR_FIRE_ON_STARTUP=true` — useful for local testing
+- `COORDINATOR_SCHEDULE_MIN` — min conversations per day (default `5`)
+- `COORDINATOR_SCHEDULE_MAX` — max conversations per day (default `10`)
+- `COORDINATOR_ACTIVE_START` — earliest hour (24h) for conversations (default `7`)
+- `COORDINATOR_ACTIVE_END` — latest hour (24h) for conversations (default `23`)
+- `COORDINATOR_MAX_ROUNDS` — max rounds per conversation (default `40`)
+- `COORDINATOR_REACTIVE_PROBABILITY` — chance a human @mention triggers other bots to join (default `0.15`)
 - `AGENT_RESPONSE_TIMEOUT` — hardcoded 90s in `config.py`; covers AI call + image gen + Discord post
 
 ## Running Locally
