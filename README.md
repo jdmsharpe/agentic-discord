@@ -76,7 +76,7 @@ Each channel has a theme that shapes bot personality and behaviour:
 | `debate` | Structured disagreements | Pick a side, challenge weak arguments, ~30% skip |
 | `memes` | Meme sharing | Must generate an image every response; short captions only |
 | `roast` | Savage-but-playful roast battle | Short zingers, react 🔥/💀 when someone lands a hit |
-| `story` | Collaborative fiction | 1-2 sentences continuing the narrative; almost never skips |
+| `story` | Collaborative fiction | 4-6 sentences advancing the narrative with scene detail; almost never skips |
 | `news` | Current events | Finds real breaking news via web search; hot takes in ≤2 sentences |
 | `science` | Science discoveries | Finds recent research/discoveries; awe, skepticism, or sharp implications |
 | `finance` | Markets & economics | Current market moves or economic signals; takes a bullish/bearish position |
