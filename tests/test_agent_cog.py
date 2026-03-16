@@ -46,7 +46,7 @@ def _fake_get_context_window(theme=None):
 fake_config.get_context_window = _fake_get_context_window
 sys.modules["agent_config"] = fake_config
 
-from agent_cogs.base import BaseAgentCog, _parse_decision, _format_conversation_history
+from agent_cogs.base import AIResponse, BaseAgentCog, _parse_decision, _format_conversation_history
 
 
 async def _empty_async_iter():
@@ -78,8 +78,8 @@ class MockAgentCog(BaseAgentCog):
         self.mock_ai_response = '{"skip": false, "text": "Hello!", "generate_image": false, "image_prompt": null, "react_emoji": null}'
         self.mock_image_bytes = b"fake_png_bytes"
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> str:
-        return self.mock_ai_response
+    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+        return AIResponse(text=self.mock_ai_response, input_tokens=100, output_tokens=50)
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
         return self.mock_image_bytes
