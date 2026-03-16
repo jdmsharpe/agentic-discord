@@ -101,7 +101,7 @@ def get_context_window(theme: str | None = None) -> int:
     """Return the context window size for a theme, scaled from CONTEXT_WINDOW_SIZE."""
     if theme:
         scale = _THEME_WINDOW_SCALES.get(theme, 1.0)
-        return max(5, round(CONTEXT_WINDOW_SIZE * scale))
+        return round(CONTEXT_WINDOW_SIZE * scale) or 1
     return CONTEXT_WINDOW_SIZE
 
 
