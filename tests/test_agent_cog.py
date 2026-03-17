@@ -47,7 +47,14 @@ def _fake_get_context_window(theme=None):
 fake_config.get_context_window = _fake_get_context_window
 sys.modules["agent_config"] = fake_config
 
-from agent_cogs.base import AIResponse, BaseAgentCog, _parse_decision, _format_conversation_history
+from agent_cogs.base import (
+    AIResponse,
+    BaseAgentCog,
+    _compute_token_cost,
+    _parse_decision,
+    _format_conversation_history,
+    format_api_error,
+)
 
 
 async def _empty_async_iter():
@@ -69,6 +76,7 @@ class MockAgentCog(BaseAgentCog):
         self.bot.user.__eq__ = lambda self, other: getattr(other, "id", None) == 12345
         self._redis = None
         self._listener_task = None
+        self._http_session = None
         self.agent_display_name = "TestBot"
         self.other_agent_names = ["Clod Bot", "Google Bot", "Grok Bot"]
         self._last_response_time = {}
@@ -775,6 +783,118 @@ class TestListenerRetry(unittest.TestCase):
             self.assertEqual(sleep_values, [1, 2, 4, 8, 16, 30])
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Cost computation tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeTokenCost(unittest.TestCase):
+    def test_basic_cost(self):
+        # gpt-5.4-pro: input=3.00, output=12.00 per 1M tokens
+        cost = _compute_token_cost("gpt-5.4-pro", 1_000_000, 1_000_000)
+        self.assertAlmostEqual(cost, 15.00)
+
+    def test_unknown_model_returns_zero(self):
+        cost = _compute_token_cost("unknown-model", 1000, 500)
+        self.assertAlmostEqual(cost, 0.0)
+
+    def test_cache_creation_tokens(self):
+        # claude-sonnet-4-6: input=3.00, output=15.00
+        # cache_creation = 2x input price = 6.00 per 1M
+        cost = _compute_token_cost(
+            "claude-sonnet-4-6", 0, 0, cache_creation_tokens=1_000_000
+        )
+        self.assertAlmostEqual(cost, 6.00)
+
+    def test_cache_read_tokens(self):
+        # claude-sonnet-4-6: input=3.00
+        # cache_read = 0.1x input price = 0.30 per 1M
+        cost = _compute_token_cost(
+            "claude-sonnet-4-6", 0, 0, cache_read_tokens=1_000_000
+        )
+        self.assertAlmostEqual(cost, 0.30)
+
+    def test_reasoning_tokens_billed_at_output_rate(self):
+        # grok-4.20: output=6.00 per 1M
+        # reasoning tokens should add to output cost
+        cost = _compute_token_cost(
+            "grok-4.20-beta-latest-reasoning", 0, 0, reasoning_tokens=1_000_000
+        )
+        self.assertAlmostEqual(cost, 6.00)
+
+    def test_combined_tokens(self):
+        # claude-sonnet-4-6: input=3.00, output=15.00
+        cost = _compute_token_cost(
+            "claude-sonnet-4-6",
+            500_000,    # input: 500k * 3.00/1M = 1.50
+            200_000,    # output: 200k * 15.00/1M = 3.00
+            cache_creation_tokens=100_000,  # 100k * 3.00 * 2 / 1M = 0.60
+            cache_read_tokens=1_000_000,    # 1M * 3.00 * 0.1 / 1M = 0.30
+        )
+        self.assertAlmostEqual(cost, 5.40)
+
+
+# ---------------------------------------------------------------------------
+# AIResponse dataclass tests
+# ---------------------------------------------------------------------------
+
+
+class TestAIResponse(unittest.TestCase):
+    def test_defaults(self):
+        r = AIResponse()
+        self.assertEqual(r.text, "")
+        self.assertEqual(r.input_tokens, 0)
+        self.assertEqual(r.output_tokens, 0)
+        self.assertEqual(r.cache_creation_tokens, 0)
+        self.assertEqual(r.cache_read_tokens, 0)
+        self.assertEqual(r.reasoning_tokens, 0)
+
+    def test_provider_specific_fields(self):
+        r = AIResponse(
+            text="hi",
+            input_tokens=100,
+            output_tokens=50,
+            cache_creation_tokens=10,
+            cache_read_tokens=80,
+            reasoning_tokens=200,
+        )
+        self.assertEqual(r.cache_creation_tokens, 10)
+        self.assertEqual(r.cache_read_tokens, 80)
+        self.assertEqual(r.reasoning_tokens, 200)
+
+
+# ---------------------------------------------------------------------------
+# Error formatting tests
+# ---------------------------------------------------------------------------
+
+
+class TestFormatApiError(unittest.TestCase):
+    def test_basic_exception(self):
+        err = Exception("Something went wrong")
+        result = format_api_error(err)
+        self.assertIn("Something went wrong", result)
+
+    def test_with_status_code(self):
+        err = Exception("Rate limited")
+        err.status_code = 429
+        result = format_api_error(err)
+        self.assertIn("429", result)
+        self.assertIn("Rate limited", result)
+
+    def test_with_message_attr(self):
+        err = Exception()
+        err.message = "Overloaded"
+        result = format_api_error(err)
+        self.assertIn("Overloaded", result)
+
+    def test_openai_body_extraction(self):
+        err = Exception("API error")
+        err.body = {"error": {"type": "invalid_request", "code": "model_not_found"}}
+        result = format_api_error(err)
+        self.assertIn("invalid_request", result)
+        self.assertIn("model_not_found", result)
 
 
 if __name__ == "__main__":

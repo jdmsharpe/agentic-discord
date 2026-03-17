@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
 
+import aiohttp
 import discord
 from discord.ext import commands
 
@@ -54,6 +55,10 @@ class AIResponse:
     text: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    # Provider-specific token types for accurate cost tracking
+    cache_creation_tokens: int = 0  # Anthropic: cache write tokens (2x input price)
+    cache_read_tokens: int = 0  # Anthropic: cache read tokens (0.1x input price)
+    reasoning_tokens: int = 0  # Grok/Gemini: reasoning/thinking tokens (output price)
 
 
 # Human-friendly model names for cost embeds
@@ -90,12 +95,32 @@ AGENT_COLORS: dict[str, int] = {
 }
 
 
-def _compute_token_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Compute cost in USD for a text model call."""
+def _compute_token_cost(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_creation_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    reasoning_tokens: int = 0,
+) -> float:
+    """Compute cost in USD for a text model call.
+
+    Handles provider-specific token types:
+    - cache_creation_tokens: billed at 2x input price (Anthropic)
+    - cache_read_tokens: billed at 0.1x input price (Anthropic)
+    - reasoning_tokens: billed at output price (Grok/Gemini)
+    """
     pricing = MODEL_PRICING.get(model)
     if not pricing or "input" not in pricing:
         return 0.0
-    return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+    input_price = pricing["input"]
+    output_price = pricing["output"]
+    return (
+        input_tokens * input_price
+        + (output_tokens + reasoning_tokens) * output_price
+        + cache_creation_tokens * input_price * 2.0
+        + cache_read_tokens * input_price * 0.1
+    ) / 1_000_000
 
 
 def _compute_image_cost(model: str) -> float:
@@ -389,6 +414,40 @@ def _format_discord_history(
     return "\n".join(lines)
 
 
+def format_api_error(error: Exception) -> str:
+    """Return a readable description for AI provider exceptions.
+
+    Extracts status codes, error types, and messages from provider-specific
+    exception objects (OpenAI, Anthropic, xAI, Google).
+    """
+    message = getattr(error, "message", None)
+    if not isinstance(message, str) or not message.strip():
+        message = str(error).strip()
+
+    status = getattr(error, "status_code", None) or getattr(error, "code", None)
+    error_type = type(error).__name__
+
+    details = []
+    if status is not None:
+        details.append(f"Status: {status}")
+    if error_type and error_type != "Exception":
+        details.append(f"Error: {error_type}")
+
+    # OpenAI-specific: extract nested error body
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        nested = body.get("error", body)
+        if isinstance(nested, dict):
+            for key in ("type", "code", "param"):
+                value = nested.get(key)
+                if isinstance(value, str) and value.strip():
+                    details.append(f"{key.title()}: {value.strip()}")
+
+    if details:
+        return f"{message}\n" + " · ".join(details)
+    return message
+
+
 class BaseAgentCog(commands.Cog):
     """Base class for AI agent cogs. Subclass and implement _call_ai()."""
 
@@ -403,6 +462,7 @@ class BaseAgentCog(commands.Cog):
         self.bot = bot
         self._redis = None
         self._listener_task: asyncio.Task | None = None
+        self._http_session: aiohttp.ClientSession | None = None
 
         # Derive display name and peer names from the canonical mapping
         self.agent_display_name: str = AGENT_DISPLAY_NAMES.get(
@@ -424,6 +484,12 @@ class BaseAgentCog(commands.Cog):
         if AGENT_PERSONALITY:
             return AGENT_PERSONALITY
         return AGENT_PERSONALITY_MAP.get(self.agent_redis_name, "")
+
+    async def get_http_session(self) -> aiohttp.ClientSession:
+        """Return a shared aiohttp session, creating one if needed."""
+        if self._http_session is None or self._http_session.closed:
+            self._http_session = aiohttp.ClientSession()
+        return self._http_session
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -472,6 +538,8 @@ class BaseAgentCog(commands.Cog):
                 pass
         if self._redis:
             await self._redis.aclose()
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
 
     # ------------------------------------------------------------------
     # Abstract methods — subclasses must implement
@@ -838,15 +906,24 @@ class BaseAgentCog(commands.Cog):
         # Call provider-specific AI
         try:
             ai_response = await self._call_ai(system_prompt, user_prompt)
-        except Exception:
-            logger.exception("AI call failed")
+        except Exception as exc:
+            logger.error(
+                "[%s] AI call failed: %s",
+                self.agent_redis_name,
+                format_api_error(exc),
+            )
             return {"skipped": True, "error": "ai_call_failed"}
 
         decision = _parse_decision(ai_response.text)
 
         # Compute AI call cost
         ai_cost = _compute_token_cost(
-            self.ai_model, ai_response.input_tokens, ai_response.output_tokens
+            self.ai_model,
+            ai_response.input_tokens,
+            ai_response.output_tokens,
+            cache_creation_tokens=ai_response.cache_creation_tokens,
+            cache_read_tokens=ai_response.cache_read_tokens,
+            reasoning_tokens=ai_response.reasoning_tokens,
         )
 
         logger.info(

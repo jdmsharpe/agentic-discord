@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 
-import aiohttp
 import discord
 from xai_sdk import AsyncClient
 from xai_sdk.chat import system, user
@@ -35,28 +35,29 @@ class GrokAgentCog(BaseAgentCog):
         )
         response = await chat.sample()
         # xAI SDK uses protobuf with OpenAI-style field names
-        input_tokens = getattr(response.usage, "prompt_tokens", 0) or 0
-        output_tokens = getattr(response.usage, "completion_tokens", 0) or 0
+        usage = response.usage
+        input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        output_tokens = getattr(usage, "completion_tokens", 0) or 0
+        reasoning_tokens = getattr(usage, "reasoning_tokens", 0) or 0
         return AIResponse(
             text=response.content or "",
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
         try:
             result = await self._client.image.sample(
                 prompt=prompt,
-                model="grok-imagine-image-pro",
+                model=self.image_model,
             )
             if result.url:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(result.url) as resp:
-                        if resp.status == 200:
-                            return await resp.read()
+                session = await self.get_http_session()
+                async with session.get(result.url) as resp:
+                    if resp.status == 200:
+                        return await resp.read()
             if result.base64:
-                import base64
-
                 return base64.b64decode(result.base64)
         except Exception:
             logger.exception("Grok image generation failed")

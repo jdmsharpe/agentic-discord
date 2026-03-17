@@ -33,6 +33,8 @@ class OpenAIAgentCog(BaseAgentCog):
             tools=[
                 {"type": "web_search"},
             ],
+            context_management=[{"type": "compaction", "compact_threshold": 200_000}],
+            prompt_cache_retention="24h",
         )
         input_tokens = 0
         output_tokens = 0
@@ -47,7 +49,7 @@ class OpenAIAgentCog(BaseAgentCog):
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
         response = await self._client.images.generate(
-            model="gpt-image-1.5",
+            model=self.image_model,
             prompt=prompt,
             n=1,
             size="1024x1024",
@@ -58,10 +60,8 @@ class OpenAIAgentCog(BaseAgentCog):
             if hasattr(item, "b64_json") and item.b64_json:
                 return base64.b64decode(item.b64_json)
             if hasattr(item, "url") and item.url:
-                import aiohttp
-
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(item.url) as resp:
-                        if resp.status == 200:
-                            return await resp.read()
+                session = await self.get_http_session()
+                async with session.get(item.url) as resp:
+                    if resp.status == 200:
+                        return await resp.read()
         return None
