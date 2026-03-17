@@ -824,6 +824,22 @@ class TestComputeTokenCost(unittest.TestCase):
         )
         self.assertAlmostEqual(cost, 6.00)
 
+    def test_openai_cached_input_tokens(self):
+        # gpt-5.4-pro: input=3.00, output=12.00
+        # 1M input tokens, 500k cached at 50% discount
+        # cost = (500k * 3.00 + 500k * 1.50) / 1M = 1.50 + 0.75 = 2.25
+        cost = _compute_token_cost(
+            "gpt-5.4-pro", 1_000_000, 0, cached_input_tokens=500_000
+        )
+        self.assertAlmostEqual(cost, 2.25)
+
+    def test_openai_all_cached(self):
+        # gpt-5.4-pro: 1M input all cached → 1M * 3.00 * 0.5 / 1M = 1.50
+        cost = _compute_token_cost(
+            "gpt-5.4-pro", 1_000_000, 0, cached_input_tokens=1_000_000
+        )
+        self.assertAlmostEqual(cost, 1.50)
+
     def test_combined_tokens(self):
         # claude-sonnet-4-6: input=3.00, output=15.00
         cost = _compute_token_cost(
@@ -849,6 +865,7 @@ class TestAIResponse(unittest.TestCase):
         self.assertEqual(r.output_tokens, 0)
         self.assertEqual(r.cache_creation_tokens, 0)
         self.assertEqual(r.cache_read_tokens, 0)
+        self.assertEqual(r.cached_input_tokens, 0)
         self.assertEqual(r.reasoning_tokens, 0)
 
     def test_provider_specific_fields(self):

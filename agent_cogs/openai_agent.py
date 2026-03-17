@@ -38,13 +38,20 @@ class OpenAIAgentCog(BaseAgentCog):
         )
         input_tokens = 0
         output_tokens = 0
+        cached_input_tokens = 0
         if hasattr(response, "usage") and response.usage:
-            input_tokens = getattr(response.usage, "input_tokens", 0) or 0
-            output_tokens = getattr(response.usage, "output_tokens", 0) or 0
+            usage = response.usage
+            input_tokens = getattr(usage, "input_tokens", 0) or 0
+            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            # OpenAI nests cache/reasoning details in sub-objects
+            input_details = getattr(usage, "input_tokens_details", None)
+            if input_details:
+                cached_input_tokens = getattr(input_details, "cached_tokens", 0) or 0
         return AIResponse(
             text=response.output_text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cached_input_tokens=cached_input_tokens,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:

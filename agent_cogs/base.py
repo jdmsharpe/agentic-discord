@@ -58,6 +58,7 @@ class AIResponse:
     # Provider-specific token types for accurate cost tracking
     cache_creation_tokens: int = 0  # Anthropic: cache write tokens (2x input price)
     cache_read_tokens: int = 0  # Anthropic: cache read tokens (0.1x input price)
+    cached_input_tokens: int = 0  # OpenAI: subset of input_tokens cached at 50% input price
     reasoning_tokens: int = 0  # Grok/Gemini: reasoning/thinking tokens (output price)
 
 
@@ -101,13 +102,15 @@ def _compute_token_cost(
     output_tokens: int,
     cache_creation_tokens: int = 0,
     cache_read_tokens: int = 0,
+    cached_input_tokens: int = 0,
     reasoning_tokens: int = 0,
 ) -> float:
     """Compute cost in USD for a text model call.
 
     Handles provider-specific token types:
     - cache_creation_tokens: billed at 2x input price (Anthropic)
-    - cache_read_tokens: billed at 0.1x input price (Anthropic)
+    - cache_read_tokens: billed at 0.1x input price (Anthropic, separate from input)
+    - cached_input_tokens: subset of input_tokens billed at 50% input price (OpenAI)
     - reasoning_tokens: billed at output price (Grok/Gemini)
     """
     pricing = MODEL_PRICING.get(model)
@@ -115,8 +118,11 @@ def _compute_token_cost(
         return 0.0
     input_price = pricing["input"]
     output_price = pricing["output"]
+    # OpenAI: cached tokens are included in input_tokens, billed at 50%
+    non_cached_input = input_tokens - cached_input_tokens
     return (
-        input_tokens * input_price
+        non_cached_input * input_price
+        + cached_input_tokens * input_price * 0.5
         + (output_tokens + reasoning_tokens) * output_price
         + cache_creation_tokens * input_price * 2.0
         + cache_read_tokens * input_price * 0.1
@@ -923,6 +929,7 @@ class BaseAgentCog(commands.Cog):
             ai_response.output_tokens,
             cache_creation_tokens=ai_response.cache_creation_tokens,
             cache_read_tokens=ai_response.cache_read_tokens,
+            cached_input_tokens=ai_response.cached_input_tokens,
             reasoning_tokens=ai_response.reasoning_tokens,
         )
 
