@@ -220,7 +220,7 @@ BOT_IDS=aaa,bbb,ccc,ddd                         # Discord user IDs of the 4 bots
 BOTS_ROLE_ID=444444444                           # shared @bots role — all agents respond when mentioned
 
 # Rate limiting
-AGENT_MAX_DAILY=50           # max AI calls per bot per day
+AGENT_MAX_DAILY=100          # max AI calls per bot per day
 AGENT_COOLDOWN_SECONDS=15    # min seconds between responses per channel
 
 # Redis
@@ -228,14 +228,14 @@ REDIS_URL=redis://127.0.0.1:6379
 
 # Coordinator
 CHANNEL_THEME_MAP=111:casual,222:debate,333:memes,444:roast,555:story,666:news
-COORDINATOR_SCHEDULE_MIN=10
-COORDINATOR_SCHEDULE_MAX=15
+COORDINATOR_SCHEDULE_MIN=3
+COORDINATOR_SCHEDULE_MAX=9
 COORDINATOR_ACTIVE_START=7   # hour (24h)
 COORDINATOR_ACTIVE_END=23
 COORDINATOR_MAX_ROUNDS=40
 COORDINATOR_REACTIVE_PROBABILITY=0.15
 COORDINATOR_FIRE_ON_STARTUP=false  # set true for testing
-CONTEXT_WINDOW_SIZE=15       # max context messages (per-theme windows scale down from this)
+CONTEXT_WINDOW_SIZE=12       # max context messages (per-theme windows scale down from this)
 ```
 
 `AGENT_NAME` is the only per-instance value — passed at runtime, not in .env:

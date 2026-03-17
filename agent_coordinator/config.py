@@ -46,3 +46,7 @@ FIRE_ON_STARTUP: bool = os.getenv("COORDINATOR_FIRE_ON_STARTUP", "false").lower(
 # Reactive triggers
 REACTIVE_TRIGGER_PROBABILITY: float = float(os.getenv("COORDINATOR_REACTIVE_PROBABILITY", "0.15"))
 REACTIVE_COOLDOWN_SECONDS: float = 300.0
+
+# Pacing — random delay between agent turns within a conversation
+TURN_DELAY_MIN: float = float(os.getenv("COORDINATOR_TURN_DELAY_MIN", "15.0"))
+TURN_DELAY_MAX: float = float(os.getenv("COORDINATOR_TURN_DELAY_MAX", "45.0"))
