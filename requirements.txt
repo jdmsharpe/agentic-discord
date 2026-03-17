@@ -1,12 +1,15 @@
 # API dependencies
-anthropic~=0.84
+anthropic~=0.85
 google-genai~=1.67
 openai~=2.28
-xai-sdk~=1.8
+xai-sdk~=1.8.2
 
 # Bot framework
 py-cord~=2.7
 redis[hiredis]~=7.3
+
+# Dashboard
+aiohttp~=3.9
 
 # Transitive pins (suppress RequestsDependencyWarning)
 charset-normalizer~=3.4

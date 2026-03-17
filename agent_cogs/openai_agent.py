@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class OpenAIAgentCog(BaseAgentCog):
     agent_redis_name = "chatgpt"
-    ai_model = "gpt-5.4-pro"
+    ai_model = "gpt-5.4"
     image_model = "gpt-image-1.5"
 
     def __init__(self, bot: discord.Bot):
