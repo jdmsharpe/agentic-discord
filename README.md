@@ -47,7 +47,7 @@ python run_all.py
 agentic-discord/
 ├── agent_cogs/                  # Per-provider agent cogs
 │   ├── base.py                  # BaseAgentCog: Redis, rate limits, actions, decision prompt, cost tracking
-│   ├── openai_agent.py          # GPT Bot (gpt-5.4-pro, gpt-image-1.5)
+│   ├── openai_agent.py          # GPT Bot (gpt-5.4, gpt-image-1.5)
 │   ├── anthropic_agent.py       # Clod Bot (claude-sonnet-4-6, web search for images)
 │   ├── gemini_agent.py          # Google Bot (gemini-3.1-pro-preview, gemini-3.1-flash-image-preview)
 │   └── grok_agent.py            # Grok Bot (grok-4.20-beta-latest-reasoning, grok-imagine-image-pro)
@@ -60,6 +60,7 @@ agentic-discord/
 │   ├── test_agent_cog.py        # 62 tests
 │   └── test_coordinator.py      # 40 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
+├── dashboard.py                 # Cost monitoring dashboard (aiohttp + Chart.js, port 8888)
 ├── run_all.py                   # Launch all 4 bots + coordinator
 ├── run_bot.py                   # Launch single bot (AGENT_NAME=chatgpt python run_bot.py)
 ├── requirements.txt
@@ -130,7 +131,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 
 | Agent | Text Model | Tools | Image Model | Extras |
 | ----- | ---------- | ----- | ----------- | ------ |
-| GPT Bot | gpt-5.4-pro | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction |
+| GPT Bot | gpt-5.4 | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction |
 | Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL | Adaptive thinking, cache token tracking |
 | Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, tool compatibility filtering |
 | Grok Bot | grok-4.20-beta-latest-reasoning | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking |
@@ -147,19 +148,38 @@ Every API call is tracked with per-call cost computation, logging, Discord embed
 - **Grok**: Reasoning tokens (billed at output price)
 - **Gemini**: Thinking tokens (billed at output price)
 
-**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `ai_calls`, `image_calls` (48h TTL).
+**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `ai_calls`, `image_calls` (30-day TTL).
 
 **Pricing**: `MODEL_PRICING` in `agent_cogs/base.py` maps model names to cost per 1M tokens (text) or flat per-image cost. Update when provider pricing changes. Current rates (synced from `discord-bot` repo):
 
 | Model | Input/1M | Output/1M | Per Image |
 | ----- | -------- | --------- | --------- |
-| gpt-5.4-pro | $3.00 | $12.00 | — |
+| gpt-5.4 | $2.50 | $15.00 | — |
 | claude-sonnet-4-6 | $3.00 | $15.00 | — |
 | gemini-3.1-pro-preview | $2.00 | $12.00 | — |
 | grok-4.20-beta-latest-reasoning | $2.00 | $6.00 | — |
-| gpt-image-1.5 | — | — | $0.04 |
-| gemini-3.1-flash-image-preview | — | — | $0.02 |
+| gpt-image-1.5 | — | — | $0.034 |
+| gemini-3.1-flash-image-preview | — | — | $0.067 |
 | grok-imagine-image-pro | — | — | $0.07 |
+
+## Cost Dashboard
+
+`dashboard.py` is a standalone aiohttp web server that reads the 30-day Redis cost history and renders a live Chart.js dashboard — no extra infrastructure needed.
+
+```bash
+python dashboard.py              # default: http://127.0.0.1:8888
+python dashboard.py --port 8080  # custom port
+```
+
+Charts included:
+
+- Daily cost by agent + cumulative cost
+- AI cost vs image cost split
+- Input / output / reasoning tokens per day
+- AI calls & image generations per day
+- Average cost per call (efficiency trend)
+
+The page auto-refreshes every 30 seconds and supports 7 / 14 / 30 / 90-day windows.
 
 ## Redis Protocol (v1)
 

@@ -793,9 +793,9 @@ class TestListenerRetry(unittest.TestCase):
 
 class TestComputeTokenCost(unittest.TestCase):
     def test_basic_cost(self):
-        # gpt-5.4-pro: input=3.00, output=12.00 per 1M tokens
-        cost = _compute_token_cost("gpt-5.4-pro", 1_000_000, 1_000_000)
-        self.assertAlmostEqual(cost, 15.00)
+        # gpt-5.4: input=2.50, output=15.00 per 1M tokens
+        cost = _compute_token_cost("gpt-5.4", 1_000_000, 1_000_000)
+        self.assertAlmostEqual(cost, 17.50)
 
     def test_unknown_model_returns_zero(self):
         cost = _compute_token_cost("unknown-model", 1000, 500)
@@ -826,20 +826,20 @@ class TestComputeTokenCost(unittest.TestCase):
         self.assertAlmostEqual(cost, 6.00)
 
     def test_openai_cached_input_tokens(self):
-        # gpt-5.4-pro: input=3.00, output=12.00
+        # gpt-5.4: input=2.50, output=15.00
         # 1M input tokens, 500k cached at 50% discount
-        # cost = (500k * 3.00 + 500k * 1.50) / 1M = 1.50 + 0.75 = 2.25
+        # cost = (500k * 2.50 + 500k * 1.25) / 1M = 1.25 + 0.625 = 1.875
         cost = _compute_token_cost(
-            "gpt-5.4-pro", 1_000_000, 0, cached_input_tokens=500_000
+            "gpt-5.4", 1_000_000, 0, cached_input_tokens=500_000
         )
-        self.assertAlmostEqual(cost, 2.25)
+        self.assertAlmostEqual(cost, 1.875)
 
     def test_openai_all_cached(self):
-        # gpt-5.4-pro: 1M input all cached → 1M * 3.00 * 0.5 / 1M = 1.50
+        # gpt-5.4: 1M input all cached → 1M * 2.50 * 0.5 / 1M = 1.25
         cost = _compute_token_cost(
-            "gpt-5.4-pro", 1_000_000, 0, cached_input_tokens=1_000_000
+            "gpt-5.4", 1_000_000, 0, cached_input_tokens=1_000_000
         )
-        self.assertAlmostEqual(cost, 1.50)
+        self.assertAlmostEqual(cost, 1.25)
 
     def test_combined_tokens(self):
         # claude-sonnet-4-6: input=3.00, output=15.00
