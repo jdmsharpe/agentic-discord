@@ -25,6 +25,8 @@ from .config import (
     MIN_RESPONDENTS_TO_CONTINUE,
     REACTIVE_COOLDOWN_SECONDS,
     REACTIVE_TRIGGER_PROBABILITY,
+    TURN_DELAY_MAX,
+    TURN_DELAY_MIN,
 )
 
 logger = logging.getLogger(__name__)
@@ -278,7 +280,7 @@ class ConversationEngine:
                     consecutive_end_requests = 0
 
             # Natural pacing between turns
-            await asyncio.sleep(random.uniform(2.0, 6.0))
+            await asyncio.sleep(random.uniform(TURN_DELAY_MIN, TURN_DELAY_MAX))
 
     async def _send_turn(
         self, state: ConversationState, agent_name: str, is_starter: bool = False

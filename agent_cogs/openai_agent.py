@@ -47,11 +47,19 @@ class OpenAIAgentCog(BaseAgentCog):
             input_details = getattr(usage, "input_tokens_details", None)
             if input_details:
                 cached_input_tokens = getattr(input_details, "cached_tokens", 0) or 0
+        # Count web_search_call items in output — each is a separate billable tool invocation
+        web_search_calls = sum(
+            1 for item in (response.output or [])
+            if getattr(item, "type", "") == "web_search_call"
+        )
+        if web_search_calls:
+            logger.info("[chatgpt] web_search called %d time(s) this turn", web_search_calls)
         return AIResponse(
             text=response.output_text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_input_tokens=cached_input_tokens,
+            web_search_calls=web_search_calls,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:

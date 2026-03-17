@@ -60,6 +60,7 @@ class AIResponse:
     cache_read_tokens: int = 0  # Anthropic: cache read tokens (0.1x input price)
     cached_input_tokens: int = 0  # OpenAI: subset of input_tokens cached at 50% input price
     reasoning_tokens: int = 0  # Grok/Gemini: reasoning/thinking tokens (output price)
+    web_search_calls: int = 0  # OpenAI: number of web_search_call items ($0.01/call)
 
 
 # Human-friendly model names for cost embeds
@@ -86,6 +87,9 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "gemini-3.1-flash-image-preview": {"per_image": 0.02},
     "grok-imagine-image-pro": {"per_image": 0.07},
 }
+
+# OpenAI Responses API: web_search tool is billed per call (flat rate)
+OPENAI_WEB_SEARCH_COST_PER_CALL: float = 0.01  # $10 / 1000 searches
 
 # Embed accent colors per agent
 AGENT_COLORS: dict[str, int] = {
@@ -922,7 +926,7 @@ class BaseAgentCog(commands.Cog):
 
         decision = _parse_decision(ai_response.text)
 
-        # Compute AI call cost
+        # Compute AI call cost (tokens + per-call tool costs)
         ai_cost = _compute_token_cost(
             self.ai_model,
             ai_response.input_tokens,
@@ -932,9 +936,13 @@ class BaseAgentCog(commands.Cog):
             cached_input_tokens=ai_response.cached_input_tokens,
             reasoning_tokens=ai_response.reasoning_tokens,
         )
+        ai_cost += ai_response.web_search_calls * OPENAI_WEB_SEARCH_COST_PER_CALL
 
+        tool_log = ""
+        if ai_response.web_search_calls:
+            tool_log = f" tools=web_search×{ai_response.web_search_calls}"
         logger.info(
-            "[%s] Decision in #%s: skip=%s text=%s image=%s emoji=%s | cost=$%.4f (%d in / %d out)",
+            "[%s] Decision in #%s: skip=%s text=%s image=%s emoji=%s | cost=$%.4f (%d in / %d out + %d reasoning%s)",
             self.agent_redis_name,
             channel_name,
             decision.get("skip"),
@@ -944,6 +952,8 @@ class BaseAgentCog(commands.Cog):
             ai_cost,
             ai_response.input_tokens,
             ai_response.output_tokens,
+            ai_response.reasoning_tokens,
+            tool_log,
         )
 
         # In memes channel: force image generation if the agent decided to respond
@@ -967,6 +977,10 @@ class BaseAgentCog(commands.Cog):
             "agent_name": self.agent_redis_name,
             "skipped": False,
         }
+
+        # Track sent message objects so we can attach the cost embed to them later
+        sent_msg: discord.Message | None = None
+        img_msg: discord.Message | None = None
 
         # Text message
         text = decision.get("text")
@@ -1022,28 +1036,48 @@ class BaseAgentCog(commands.Cog):
         total_cost = ai_cost + image_cost
         if total_cost > 0:
             logger.info(
-                "[%s] Cost: $%.4f (ai=$%.4f img=$%.4f) %d in / %d out",
+                "[%s] Cost: $%.4f (ai=$%.4f img=$%.4f) %d in / %d out + %d reasoning%s",
                 self.agent_redis_name,
                 total_cost,
                 ai_cost,
                 image_cost,
                 ai_response.input_tokens,
                 ai_response.output_tokens,
+                ai_response.reasoning_tokens,
+                f" web_search×{ai_response.web_search_calls}" if ai_response.web_search_calls else "",
             )
         daily_total = await self._accumulate_cost(
             ai_cost, image_cost,
             ai_response.input_tokens, ai_response.output_tokens,
+            reasoning_tokens=ai_response.reasoning_tokens,
             image_generated=image_cost > 0,
         )
-        # Send cost embed only when enabled and text or image was posted (not emoji-only or skip)
+        # Attach cost embed to the last sent message (text takes priority over image).
+        # Falls back to a standalone channel.send() if editing fails.
         has_visible_post = result.get("text") or result.get("image_sent")
         if SHOW_COST_EMBEDS and has_visible_post and total_cost > 0:
-            await self._send_cost_embed(
-                channel, ai_cost, image_cost,
+            embed = self._build_cost_embed(
+                ai_cost, image_cost,
                 ai_response.input_tokens, ai_response.output_tokens,
                 daily_total,
+                reasoning_tokens=ai_response.reasoning_tokens,
+                web_search_calls=ai_response.web_search_calls,
                 image_generated=image_cost > 0,
             )
+            embed_target = sent_msg or img_msg
+            if embed_target:
+                try:
+                    await embed_target.edit(embed=embed)
+                except Exception:
+                    try:
+                        await channel.send(embed=embed)
+                    except Exception:
+                        logger.debug("Failed to attach cost embed")
+            else:
+                try:
+                    await channel.send(embed=embed)
+                except Exception:
+                    logger.debug("Failed to send cost embed")
 
         return result
 
@@ -1130,17 +1164,18 @@ class BaseAgentCog(commands.Cog):
     # Cost tracking
     # ------------------------------------------------------------------
 
-    async def _send_cost_embed(
+    def _build_cost_embed(
         self,
-        channel: discord.abc.Messageable,
         ai_cost: float,
         image_cost: float,
         input_tokens: int,
         output_tokens: int,
         daily_total: float,
+        reasoning_tokens: int = 0,
+        web_search_calls: int = 0,
         image_generated: bool = False,
-    ) -> None:
-        """Send a compact embed showing the cost of this interaction."""
+    ) -> discord.Embed:
+        """Build a compact embed showing the cost of this interaction."""
         total = ai_cost + image_cost
         color = AGENT_COLORS.get(self.agent_redis_name, 0x2B2D31)
 
@@ -1155,16 +1190,17 @@ class BaseAgentCog(commands.Cog):
         embed = discord.Embed(description=model_line, color=color)
         parts = [f"${total:.4f}"]
         if input_tokens or output_tokens:
-            parts.append(f"{input_tokens:,} tokens in / {output_tokens:,} tokens out")
+            out_str = f"{output_tokens:,} tokens out"
+            if reasoning_tokens:
+                out_str += f" + {reasoning_tokens:,} thinking"
+            parts.append(f"{input_tokens:,} tokens in / {out_str}")
+        if web_search_calls:
+            parts.append(f"web search ×{web_search_calls}")
         if image_cost > 0:
             parts.append(f"img ${image_cost:.3f}")
         parts.append(f"daily ${daily_total:.2f}")
         embed.set_footer(text=" · ".join(parts))
-
-        try:
-            await channel.send(embed=embed)
-        except Exception:
-            logger.debug("Failed to send cost embed")
+        return embed
 
     async def _accumulate_cost(
         self,
@@ -1172,7 +1208,8 @@ class BaseAgentCog(commands.Cog):
         image_cost: float,
         input_tokens: int,
         output_tokens: int,
-        image_generated: bool,
+        reasoning_tokens: int = 0,
+        image_generated: bool = False,
     ) -> float:
         """Accumulate cost in Redis and return the new daily total.
 
@@ -1191,6 +1228,8 @@ class BaseAgentCog(commands.Cog):
             pipe.hincrbyfloat(key, "image_cost", image_cost)
             pipe.hincrby(key, "input_tokens", input_tokens)
             pipe.hincrby(key, "output_tokens", output_tokens)
+            if reasoning_tokens:
+                pipe.hincrby(key, "reasoning_tokens", reasoning_tokens)
             pipe.hincrby(key, "ai_calls", 1)
             if image_generated:
                 pipe.hincrby(key, "image_calls", 1)

@@ -30,6 +30,8 @@ fake_config.REACTIVE_TRIGGER_PROBABILITY = 0.15
 fake_config.REACTIVE_COOLDOWN_SECONDS = 300.0
 fake_config.CONSECUTIVE_TIMEOUT_THRESHOLD = 3  # Low threshold for testing
 fake_config.FIRE_ON_STARTUP = False
+fake_config.TURN_DELAY_MIN = 0.0
+fake_config.TURN_DELAY_MAX = 0.0
 sys.modules["agent_coordinator.config"] = fake_config
 
 # engine.py imports get_context_window from agent_config
