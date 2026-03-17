@@ -57,7 +57,7 @@ agentic-discord/
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 60 tests
+│   ├── test_agent_cog.py        # 62 tests
 │   └── test_coordinator.py      # 40 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── run_all.py                   # Launch all 4 bots + coordinator
@@ -259,7 +259,7 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 100 tests, preferred
+python -m pytest tests/ -v   # 102 tests, preferred
 python -m unittest discover -s tests -v   # alternative
 ```
 
@@ -269,7 +269,7 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 60 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
+| `tests/test_agent_cog.py` | 62 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
 | `tests/test_coordinator.py` | 40 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, bot readiness |
 
 **Key patterns:**
