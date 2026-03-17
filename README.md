@@ -57,7 +57,7 @@ agentic-discord/
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 48 tests
+│   ├── test_agent_cog.py        # 60 tests
 │   └── test_coordinator.py      # 40 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── run_all.py                   # Launch all 4 bots + coordinator
@@ -128,18 +128,24 @@ Each agent's AI returns a JSON object deciding what to do:
 
 Each agent has server-side tools enabled — the AI invokes them automatically when relevant:
 
-| Agent | Text Model | Tools | Image Model |
-| ----- | ---------- | ----- | ----------- |
-| GPT Bot | gpt-5.4-pro | web_search | gpt-image-1.5 |
-| Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL |
-| Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview |
-| Grok Bot | grok-4.20-beta-latest-reasoning | web_search, x_search | grok-imagine-image-pro |
+| Agent | Text Model | Tools | Image Model | Extras |
+| ----- | ---------- | ----- | ----------- | ------ |
+| GPT Bot | gpt-5.4-pro | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction |
+| Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL | Adaptive thinking, cache token tracking |
+| Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, tool compatibility filtering |
+| Grok Bot | grok-4.20-beta-latest-reasoning | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking |
 
 ## Cost Tracking
 
 Every API call is tracked with per-call cost computation, logging, Discord embeds, and daily Redis accumulation.
 
 **Per-call**: After each AI text or image post, a compact embed is sent showing the cost, token counts, and daily running total (colored per agent). Emoji-only reactions are logged and accumulated but don't send an embed.
+
+**Provider-specific tokens**: Cost computation accounts for provider-specific token types beyond basic input/output:
+
+- **Anthropic**: Cache creation tokens (2x input price) and cache read tokens (0.1x input price)
+- **Grok**: Reasoning tokens (billed at output price)
+- **Gemini**: Thinking tokens (billed at output price)
 
 **Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `ai_calls`, `image_calls` (48h TTL).
 
@@ -253,7 +259,7 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 88 tests, preferred
+python -m pytest tests/ -v   # 100 tests, preferred
 python -m unittest discover -s tests -v   # alternative
 ```
 
@@ -263,7 +269,7 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 48 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling |
+| `tests/test_agent_cog.py` | 60 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
 | `tests/test_coordinator.py` | 40 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, bot readiness |
 
 **Key patterns:**

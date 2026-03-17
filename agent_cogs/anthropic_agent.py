@@ -37,6 +37,7 @@ class AnthropicAgentCog(BaseAgentCog):
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
                 {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 5},
             ],
+            thinking={"type": "adaptive", "budget_tokens": 4096},
         )
         # Extract text from content blocks, stripping web search citation tags
         parts = []
@@ -45,12 +46,17 @@ class AnthropicAgentCog(BaseAgentCog):
                 clean = re.sub(r"</?cite[^>]*>", "", block.text)
                 parts.append(clean)
         text = "\n".join(parts) if parts else ""
-        input_tokens = getattr(response.usage, "input_tokens", 0) or 0
-        output_tokens = getattr(response.usage, "output_tokens", 0) or 0
+        usage = response.usage
+        input_tokens = getattr(usage, "input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
+        cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
         return AIResponse(
             text=text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            cache_read_tokens=cache_read_tokens,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
