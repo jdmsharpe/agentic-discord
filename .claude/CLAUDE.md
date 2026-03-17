@@ -138,6 +138,7 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 
 - New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image(prompt)`; set `ai_model` and `image_model` class attributes for cost tracking
 - `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI, 50% discount), `reasoning_tokens` (Grok/Gemini thinking tokens) — set these in `_call_ai()` for accurate cost tracking
+- Anthropic thinking modes: `{"type": "adaptive"}` (model self-selects budget, no extra fields) vs `{"type": "enabled", "budget_tokens": N}` (fixed budget) — mixing them (e.g. `adaptive` + `budget_tokens`) causes a 400
 - `_compute_token_cost()` handles Anthropic cache tokens (2x/0.1x input price), OpenAI cached input (50% input price), and reasoning tokens (output price) automatically
 - `format_api_error()` in `base.py` extracts structured error info from any provider's exceptions
 - `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads — use it instead of creating per-request sessions
