@@ -317,7 +317,7 @@ class TestActionExecution(unittest.TestCase):
         result = loop.run_until_complete(self.cog._send_text(channel, "hello"))
         loop.close()
 
-        channel.send.assert_called_once_with("hello")
+        channel.send.assert_called_once_with("hello", embed=None)
         self.assertEqual(result.id, 111)
 
     def test_send_text_truncates_long_messages(self):

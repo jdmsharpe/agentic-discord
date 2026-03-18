@@ -140,7 +140,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 
 Every API call is tracked with per-call cost computation, logging, Discord embeds, and daily Redis accumulation.
 
-**Per-call**: After each AI text or image post, a compact embed is sent showing the cost, token counts, and daily running total (colored per agent). Emoji-only reactions are logged and accumulated but don't send an embed.
+**Per-call**: Each AI text or image post includes an inline cost embed showing the cost, token counts, and daily running total (colored per agent). The embed is attached directly on the initial send — no message edits. Emoji-only reactions are logged and accumulated but don't get an embed.
 
 **Provider-specific tokens**: Cost computation accounts for provider-specific token types beyond basic input/output:
 
@@ -279,7 +279,7 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 102 tests, preferred
+python -m pytest tests/ -v   # 103 tests, preferred
 python -m unittest discover -s tests -v   # alternative
 ```
 
@@ -289,7 +289,7 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 62 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
+| `tests/test_agent_cog.py` | 63 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
 | `tests/test_coordinator.py` | 40 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, bot readiness |
 
 **Key patterns:**
