@@ -160,7 +160,7 @@ canvas { max-height: 240px; }
     <canvas id="chart-reasoning"></canvas>
   </div>
   <div class="chart-box">
-    <h2>AI calls &amp; image generations per day</h2>
+    <h2>AI calls, image generations &amp; web searches per day</h2>
     <canvas id="chart-calls"></canvas>
   </div>
   <div class="chart-box">
@@ -233,11 +233,11 @@ async function loadData() {
 
   // Build per-agent time series
   const cost = {}, aiCost = {}, imgCost = {}, inputTok = {}, outputTok = {},
-        reasoningTok = {}, calls = {}, imgCalls = {};
+        reasoningTok = {}, calls = {}, imgCalls = {}, webSearches = {};
   for (const ag of agents) {
     cost[ag] = []; aiCost[ag] = []; imgCost[ag] = [];
     inputTok[ag] = []; outputTok[ag] = []; reasoningTok[ag] = [];
-    calls[ag] = []; imgCalls[ag] = [];
+    calls[ag] = []; imgCalls[ag] = []; webSearches[ag] = [];
     for (const d of dates) {
       const r = data[d]?.[ag] || {};
       cost[ag].push(+(r.total_cost || 0));
@@ -248,6 +248,7 @@ async function loadData() {
       reasoningTok[ag].push(r.reasoning_tokens || 0);
       calls[ag].push(r.ai_calls || 0);
       imgCalls[ag].push(r.image_calls || 0);
+      webSearches[ag].push(r.web_search_calls || 0);
     }
   }
 
@@ -258,6 +259,7 @@ async function loadData() {
   const totalCallsN = Object.values(calls).flat().reduce((a,b) => a+b, 0);
   const totalImgN   = Object.values(imgCalls).flat().reduce((a,b) => a+b, 0);
   const totalReason = Object.values(reasoningTok).flat().reduce((a,b) => a+b, 0);
+  const totalWebSearch = Object.values(webSearches).flat().reduce((a,b) => a+b, 0);
   const grand       = Object.values(totals).reduce((a,b) => a+b, 0);
   const today       = agents.reduce((s, ag) => s + (cost[ag].at(-1) || 0), 0);
   const avgPerCall  = totalCallsN > 0 ? grand / totalCallsN : 0;
@@ -268,6 +270,7 @@ async function loadData() {
     buildCard("Today",          "$" + today.toFixed(4),        dates.at(-1)),
     buildCard("Avg $/call",     "$" + avgPerCall.toFixed(4),   totalCallsN + " calls \u00b7 " + totalImgN + " images"),
     buildCard("Reasoning tok",  fmtK(totalReason),             "Grok + Gemini thinking"),
+    buildCard("Web searches",   totalWebSearch.toLocaleString(), "$" + (totalWebSearch * 0.01).toFixed(2) + " search cost"),
     ...agents.map(ag => {
       const agCalls = calls[ag].reduce((a,b) => a+b, 0);
       const agAvg   = agCalls > 0 ? totals[ag] / agCalls : 0;
@@ -294,10 +297,11 @@ async function loadData() {
   makeChart("chart-output",    "bar", labels, agents.map(ag => barDataset(ag, outputTok[ag],    COLORS[ag])), fmtK);
   makeChart("chart-reasoning", "bar", labels, agents.map(ag => barDataset(ag, reasoningTok[ag], COLORS[ag])), fmtK);
 
-  // Calls: AI calls solid, image calls faded, separate stacks so both show
+  // Calls: AI calls solid, image calls faded, web searches striped — separate stacks
   makeChart("chart-calls", "bar", labels, agents.flatMap(ag => [
-    barDataset(ag,           calls[ag],    COLORS[ag],       ag + "-ai"),
-    barDataset(ag + " img",  imgCalls[ag], COLORS[ag] + "55", ag + "-img"),
+    barDataset(ag,            calls[ag],       COLORS[ag],       ag + "-ai"),
+    barDataset(ag + " img",   imgCalls[ag],    COLORS[ag] + "55", ag + "-img"),
+    barDataset(ag + " search", webSearches[ag], COLORS[ag] + "88", ag + "-search"),
   ]));
 
   // Avg cost per call per agent (line — only where calls > 0)

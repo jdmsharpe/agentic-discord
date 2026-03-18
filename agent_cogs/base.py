@@ -1017,6 +1017,7 @@ class BaseAgentCog(commands.Cog):
             ai_response.input_tokens, ai_response.output_tokens,
             reasoning_tokens=ai_response.reasoning_tokens,
             image_generated=image_cost > 0,
+            web_search_calls=ai_response.web_search_calls,
         )
 
         will_post = text or image_bytes
@@ -1239,10 +1240,11 @@ class BaseAgentCog(commands.Cog):
         output_tokens: int,
         reasoning_tokens: int = 0,
         image_generated: bool = False,
+        web_search_calls: int = 0,
     ) -> float:
         """Accumulate cost in Redis and return the new daily total.
 
-        Key: agent:{name}:cost:{YYYY-MM-DD} with 48h TTL.
+        Key: agent:{name}:cost:{YYYY-MM-DD} with 30-day TTL.
         Returns 0.0 if Redis is unavailable.
         """
         if not self._redis:
@@ -1262,6 +1264,8 @@ class BaseAgentCog(commands.Cog):
             pipe.hincrby(key, "ai_calls", 1)
             if image_generated:
                 pipe.hincrby(key, "image_calls", 1)
+            if web_search_calls:
+                pipe.hincrby(key, "web_search_calls", web_search_calls)
             pipe.expire(key, 2592000)  # 30-day TTL
             results = await pipe.execute()
             return float(results[0])  # new total_cost after increment

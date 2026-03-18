@@ -825,6 +825,16 @@ class TestComputeTokenCost(unittest.TestCase):
         )
         self.assertAlmostEqual(cost, 6.00)
 
+    def test_openai_reasoning_tokens_after_subtraction(self):
+        # gpt-5.4: output=15.00
+        # OpenAI includes reasoning in output_tokens, so the agent subtracts
+        # reasoning before building AIResponse: output=800k, reasoning=200k
+        # cost = (800k + 200k) * 15.00 / 1M = 15.00 (same as 1M total output)
+        cost = _compute_token_cost(
+            "gpt-5.4", 0, 800_000, reasoning_tokens=200_000
+        )
+        self.assertAlmostEqual(cost, 15.00)
+
     def test_openai_cached_input_tokens(self):
         # gpt-5.4: input=2.50, output=15.00
         # 1M input tokens, 500k cached at 50% discount
