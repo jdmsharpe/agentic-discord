@@ -979,24 +979,73 @@ class BaseAgentCog(commands.Cog):
             "skipped": False,
         }
 
-        # Track sent message objects so we can attach the cost embed to them later
         sent_msg: discord.Message | None = None
         img_msg: discord.Message | None = None
 
-        # Text message
-        text = decision.get("text")
-        if text and isinstance(text, str):
-            sent_msg = await self._send_text(channel, text)
+        # Prepare text and image data before sending anything
+        text = decision.get("text") if isinstance(decision.get("text"), str) else None
+        image_bytes: bytes | None = None
+        image_cost = 0.0
+        img_prompt: str | None = None
+
+        if decision.get("generate_image") and decision.get("image_prompt"):
+            img_prompt = decision["image_prompt"]
+            try:
+                image_bytes = await self._generate_image_bytes(img_prompt)
+            except Exception:
+                logger.exception("Failed to generate image")
+                image_bytes = None
+            if image_bytes:
+                image_cost = _compute_image_cost(self.image_model)
+
+        # Build cost embed before sending so we can include it inline
+        total_cost = ai_cost + image_cost
+        if total_cost > 0:
+            logger.info(
+                "[%s] Cost: $%.4f (ai=$%.4f img=$%.4f) %d in / %d out + %d reasoning%s",
+                self.agent_redis_name,
+                total_cost,
+                ai_cost,
+                image_cost,
+                ai_response.input_tokens,
+                ai_response.output_tokens,
+                ai_response.reasoning_tokens,
+                f" web_search×{ai_response.web_search_calls}" if ai_response.web_search_calls else "",
+            )
+        daily_total = await self._accumulate_cost(
+            ai_cost, image_cost,
+            ai_response.input_tokens, ai_response.output_tokens,
+            reasoning_tokens=ai_response.reasoning_tokens,
+            image_generated=image_cost > 0,
+        )
+
+        will_post = text or image_bytes
+        embed: discord.Embed | None = None
+        if SHOW_COST_EMBEDS and will_post and total_cost > 0:
+            embed = self._build_cost_embed(
+                ai_cost, image_cost,
+                ai_response.input_tokens, ai_response.output_tokens,
+                daily_total,
+                reasoning_tokens=ai_response.reasoning_tokens,
+                thinking_used=ai_response.thinking_used,
+                web_search_calls=ai_response.web_search_calls,
+                image_generated=image_cost > 0,
+            )
+
+        # Send text message (with embed attached if this is the primary post)
+        if text:
+            sent_msg = await self._send_text(
+                channel, text, embed=embed if not image_bytes else None,
+            )
             if sent_msg:
                 result["text"] = text
                 result["message_id"] = sent_msg.id
                 self._record_response(channel.id if hasattr(channel, "id") else 0)
 
-        # Image generation
-        image_cost = 0.0
-        if decision.get("generate_image") and decision.get("image_prompt"):
-            img_prompt = decision["image_prompt"]
-            img_msg = await self._generate_and_send_image(channel, img_prompt)
+        # Send image (with embed if text wasn't sent or text send failed)
+        if image_bytes:
+            embed_for_image = embed if not sent_msg else None
+            img_msg = await self._send_image(channel, image_bytes, embed=embed_for_image)
             if img_msg:
                 result["image_sent"] = True
                 result["image_prompt"] = img_prompt
@@ -1004,7 +1053,13 @@ class BaseAgentCog(commands.Cog):
                     result["image_url"] = img_msg.attachments[0].url
                 result.setdefault("message_id", img_msg.id)
                 self._record_response(channel.id if hasattr(channel, "id") else 0)
-                image_cost = _compute_image_cost(self.image_model)
+
+        # Fallback: if embed was built but neither send succeeded, post standalone
+        if embed and not sent_msg and not img_msg:
+            try:
+                await channel.send(embed=embed)
+            except Exception:
+                logger.debug("Failed to send cost embed")
 
         # Emoji reaction (AI picks which message to react to)
         emoji = decision.get("react_emoji")
@@ -1032,55 +1087,6 @@ class BaseAgentCog(commands.Cog):
         if decision.get("end_conversation"):
             result["end_conversation"] = True
 
-        # Cost tracking — always log and accumulate, but only send embed
-        # when the bot posted a text message or image (not for emoji-only actions).
-        total_cost = ai_cost + image_cost
-        if total_cost > 0:
-            logger.info(
-                "[%s] Cost: $%.4f (ai=$%.4f img=$%.4f) %d in / %d out + %d reasoning%s",
-                self.agent_redis_name,
-                total_cost,
-                ai_cost,
-                image_cost,
-                ai_response.input_tokens,
-                ai_response.output_tokens,
-                ai_response.reasoning_tokens,
-                f" web_search×{ai_response.web_search_calls}" if ai_response.web_search_calls else "",
-            )
-        daily_total = await self._accumulate_cost(
-            ai_cost, image_cost,
-            ai_response.input_tokens, ai_response.output_tokens,
-            reasoning_tokens=ai_response.reasoning_tokens,
-            image_generated=image_cost > 0,
-        )
-        # Attach cost embed to the last sent message (text takes priority over image).
-        # Falls back to a standalone channel.send() if editing fails.
-        has_visible_post = result.get("text") or result.get("image_sent")
-        if SHOW_COST_EMBEDS and has_visible_post and total_cost > 0:
-            embed = self._build_cost_embed(
-                ai_cost, image_cost,
-                ai_response.input_tokens, ai_response.output_tokens,
-                daily_total,
-                reasoning_tokens=ai_response.reasoning_tokens,
-                thinking_used=ai_response.thinking_used,
-                web_search_calls=ai_response.web_search_calls,
-                image_generated=image_cost > 0,
-            )
-            embed_target = sent_msg or img_msg
-            if embed_target:
-                try:
-                    await embed_target.edit(embed=embed)
-                except Exception:
-                    try:
-                        await channel.send(embed=embed)
-                    except Exception:
-                        logger.debug("Failed to attach cost embed")
-            else:
-                try:
-                    await channel.send(embed=embed)
-                except Exception:
-                    logger.debug("Failed to send cost embed")
-
         return result
 
     # ------------------------------------------------------------------
@@ -1092,6 +1098,7 @@ class BaseAgentCog(commands.Cog):
         channel: discord.abc.Messageable,
         text: str,
         reply_to_message_id: int | None = None,
+        embed: discord.Embed | None = None,
     ) -> discord.Message | None:
         """Send a text message, optionally as a reply to a specific message."""
         if len(text) > 2000:
@@ -1100,15 +1107,29 @@ class BaseAgentCog(commands.Cog):
             if reply_to_message_id:
                 try:
                     target = await channel.fetch_message(reply_to_message_id)
-                    return await target.reply(text, mention_author=False)
+                    return await target.reply(text, mention_author=False, embed=embed)
                 except Exception:
                     logger.debug(
                         "Could not reply to message %s, sending normally",
                         reply_to_message_id,
                     )
-            return await channel.send(text)
+            return await channel.send(text, embed=embed)
         except Exception:
             logger.exception("Failed to send text message")
+            return None
+
+    async def _send_image(
+        self,
+        channel: discord.abc.Messageable,
+        image_bytes: bytes,
+        embed: discord.Embed | None = None,
+    ) -> discord.Message | None:
+        """Send pre-generated image bytes to the channel."""
+        try:
+            file = discord.File(BytesIO(image_bytes), filename="agent_image.png")
+            return await channel.send(file=file, embed=embed)
+        except Exception:
+            logger.exception("Failed to send image")
             return None
 
     async def _generate_and_send_image(
@@ -1119,8 +1140,7 @@ class BaseAgentCog(commands.Cog):
             image_bytes = await self._generate_image_bytes(prompt)
             if not image_bytes:
                 return None
-            file = discord.File(BytesIO(image_bytes), filename="agent_image.png")
-            return await channel.send(file=file)
+            return await self._send_image(channel, image_bytes)
         except Exception:
             logger.exception("Failed to generate/send image")
             return None
