@@ -1029,6 +1029,7 @@ class BaseAgentCog(commands.Cog):
                 reasoning_tokens=ai_response.reasoning_tokens,
                 thinking_used=ai_response.thinking_used,
                 web_search_calls=ai_response.web_search_calls,
+                text_generated=bool(text),
                 image_generated=image_cost > 0,
             )
 
@@ -1196,17 +1197,20 @@ class BaseAgentCog(commands.Cog):
         reasoning_tokens: int = 0,
         thinking_used: bool = False,
         web_search_calls: int = 0,
+        text_generated: bool = False,
         image_generated: bool = False,
     ) -> discord.Embed:
         """Build a compact embed showing the cost of this interaction."""
         total = ai_cost + image_cost
         color = AGENT_COLORS.get(self.agent_redis_name, 0x2B2D31)
 
-        # Model line: "Claude Opus 4.6 · GPT Image 1.5" or just "Claude Opus 4.6"
+        # Model line: show whichever model(s) were actually used
         ai_display = MODEL_DISPLAY_NAMES.get(self.ai_model, self.ai_model)
-        if image_generated:
-            img_display = MODEL_DISPLAY_NAMES.get(self.image_model, self.image_model)
+        img_display = MODEL_DISPLAY_NAMES.get(self.image_model, self.image_model)
+        if text_generated and image_generated:
             model_line = f"{ai_display} · {img_display}"
+        elif image_generated:
+            model_line = img_display
         else:
             model_line = ai_display
 
