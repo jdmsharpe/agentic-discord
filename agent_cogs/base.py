@@ -60,6 +60,7 @@ class AIResponse:
     cache_read_tokens: int = 0  # Anthropic: cache read tokens (0.1x input price)
     cached_input_tokens: int = 0  # OpenAI: subset of input_tokens cached at 50% input price
     reasoning_tokens: int = 0  # Grok/Gemini: reasoning/thinking tokens (output price)
+    thinking_used: bool = False  # Anthropic: whether thinking blocks were present
     web_search_calls: int = 0  # OpenAI: number of web_search_call items ($0.01/call)
 
 
@@ -1061,6 +1062,7 @@ class BaseAgentCog(commands.Cog):
                 ai_response.input_tokens, ai_response.output_tokens,
                 daily_total,
                 reasoning_tokens=ai_response.reasoning_tokens,
+                thinking_used=ai_response.thinking_used,
                 web_search_calls=ai_response.web_search_calls,
                 image_generated=image_cost > 0,
             )
@@ -1172,6 +1174,7 @@ class BaseAgentCog(commands.Cog):
         output_tokens: int,
         daily_total: float,
         reasoning_tokens: int = 0,
+        thinking_used: bool = False,
         web_search_calls: int = 0,
         image_generated: bool = False,
     ) -> discord.Embed:
@@ -1193,6 +1196,8 @@ class BaseAgentCog(commands.Cog):
             out_str = f"{output_tokens:,} tokens out"
             if reasoning_tokens:
                 out_str += f" + {reasoning_tokens:,} thinking"
+            elif thinking_used:
+                out_str += " (w/ thinking)"
             parts.append(f"{input_tokens:,} tokens in / {out_str}")
         if web_search_calls:
             parts.append(f"web search ×{web_search_calls}")

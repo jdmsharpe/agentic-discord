@@ -41,10 +41,13 @@ class AnthropicAgentCog(BaseAgentCog):
         )
         # Extract text from content blocks, stripping web search citation tags
         parts = []
+        thinking_used = False
         for block in response.content:
             if block.type == "text":
                 clean = re.sub(r"</?cite[^>]*>", "", block.text)
                 parts.append(clean)
+            elif block.type == "thinking":
+                thinking_used = True
         text = "\n".join(parts) if parts else ""
         usage = response.usage
         input_tokens = getattr(usage, "input_tokens", 0) or 0
@@ -57,6 +60,7 @@ class AnthropicAgentCog(BaseAgentCog):
             output_tokens=output_tokens,
             cache_creation_tokens=cache_creation_tokens,
             cache_read_tokens=cache_read_tokens,
+            thinking_used=thinking_used,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
