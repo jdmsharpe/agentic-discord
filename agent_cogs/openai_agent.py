@@ -39,6 +39,7 @@ class OpenAIAgentCog(BaseAgentCog):
         input_tokens = 0
         output_tokens = 0
         cached_input_tokens = 0
+        reasoning_tokens = 0
         if hasattr(response, "usage") and response.usage:
             usage = response.usage
             input_tokens = getattr(usage, "input_tokens", 0) or 0
@@ -47,6 +48,12 @@ class OpenAIAgentCog(BaseAgentCog):
             input_details = getattr(usage, "input_tokens_details", None)
             if input_details:
                 cached_input_tokens = getattr(input_details, "cached_tokens", 0) or 0
+            output_details = getattr(usage, "output_tokens_details", None)
+            if output_details:
+                reasoning_tokens = getattr(output_details, "reasoning_tokens", 0) or 0
+            # OpenAI includes reasoning in output_tokens — subtract so the
+            # cost formula (output + reasoning) * price doesn't double-count
+            output_tokens = max(output_tokens - reasoning_tokens, 0)
         # Count web_search_call items in output — each is a separate billable tool invocation
         web_search_calls = sum(
             1 for item in (response.output or [])
@@ -59,6 +66,7 @@ class OpenAIAgentCog(BaseAgentCog):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_input_tokens=cached_input_tokens,
+            reasoning_tokens=reasoning_tokens,
             web_search_calls=web_search_calls,
         )
 
