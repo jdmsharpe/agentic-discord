@@ -425,6 +425,7 @@ class TestDecideAndAct(unittest.TestCase):
 
     def test_emoji_reaction(self):
         self.cog.mock_ai_response = '{"skip": false, "text": null, "react_emoji": "🔥"}'
+        self.cog._redis = AsyncMock()
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-general"
@@ -441,6 +442,12 @@ class TestDecideAndAct(unittest.TestCase):
         loop.close()
 
         self.assertEqual(result["emoji_reacted"], "🔥")
+        # Verify emoji counter was incremented in Redis
+        self.cog._redis.hincrby.assert_awaited_with(
+            f"agent:{self.cog.agent_redis_name}:cost:{time.strftime('%Y-%m-%d')}",
+            "emoji_reactions",
+            1,
+        )
 
     def test_image_generation(self):
         self.cog.mock_ai_response = '{"skip": false, "text": null, "generate_image": true, "image_prompt": "a cat"}'

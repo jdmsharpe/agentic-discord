@@ -1076,6 +1076,7 @@ class BaseAgentCog(commands.Cog):
                 if reacted:
                     result["emoji_reacted"] = emoji
                     result["react_to_message_id"] = target_id
+                    await self._increment_emoji_count()
 
         # If nothing was done despite not skipping, mark as skipped
         if (
@@ -1272,6 +1273,17 @@ class BaseAgentCog(commands.Cog):
         except Exception:
             logger.debug("Failed to accumulate cost in Redis")
             return 0.0
+
+    async def _increment_emoji_count(self) -> None:
+        """Increment the daily emoji reaction counter in Redis."""
+        if not self._redis:
+            return
+        today = time.strftime("%Y-%m-%d")
+        key = f"agent:{self.agent_redis_name}:cost:{today}"
+        try:
+            await self._redis.hincrby(key, "emoji_reactions", 1)
+        except Exception:
+            logger.debug("Failed to increment emoji count in Redis")
 
     # ------------------------------------------------------------------
     # Rate limiting
