@@ -149,7 +149,7 @@ Every API call is tracked with per-call cost computation, logging, Discord embed
 - **Grok**: Reasoning tokens (billed at output price)
 - **Gemini**: Thinking tokens (billed at output price)
 
-**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `ai_calls`, `image_calls`, `web_search_calls` (30-day TTL).
+**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `ai_calls`, `image_calls`, `web_search_calls`, `emoji_reactions` (30-day TTL).
 
 **Pricing**: `MODEL_PRICING` in `agent_cogs/base.py` maps model names to cost per 1M tokens (text) or flat per-image cost. Update when provider pricing changes. Current rates (synced from `discord-bot` repo):
 

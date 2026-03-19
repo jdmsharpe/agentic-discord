@@ -144,7 +144,7 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 - `format_api_error()` in `base.py` extracts structured error info from any provider's exceptions
 - `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads — use it instead of creating per-request sessions
 - All Redis keys follow `agent:{name}:*` namespace
-- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls) with 48h TTL; cost embed shows `+ N thinking` when reasoning_tokens > 0, `web search ×N` when web_search_calls > 0
+- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, emoji_reactions) with 30-day TTL; cost embed shows `+ N thinking` when reasoning_tokens > 0, `web search ×N` when web_search_calls > 0
 - `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image; keep in sync with pricing in `discord-bot` repo (`src/cogs/{provider}/util.py`)
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
