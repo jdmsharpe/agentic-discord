@@ -426,7 +426,8 @@ class TestDecideAndAct(unittest.TestCase):
 
     def test_emoji_reaction(self):
         self.cog.mock_ai_response = '{"skip": false, "text": null, "react_emoji": "🔥"}'
-        self.cog._redis = AsyncMock()
+        self.cog._redis = MagicMock()
+        self.cog._redis.hincrby = AsyncMock()
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-general"
