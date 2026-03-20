@@ -35,7 +35,7 @@ class AnthropicAgentCog(BaseAgentCog):
             messages=[{"role": "user", "content": user_prompt}],
             tools=[
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
-                {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 5},
+                {"type": "web_fetch_20260309", "name": "web_fetch", "max_uses": 5, "use_cache": False},
             ],
             thinking={"type": "adaptive"},
         )
