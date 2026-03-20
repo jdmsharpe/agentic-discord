@@ -2,7 +2,6 @@
 anthropic~=0.86
 google-genai~=1.68
 openai~=2.29
-xai-sdk~=1.9.1
 
 # Bot framework
 py-cord~=2.7

@@ -25,11 +25,25 @@ class OpenAIAgentCog(BaseAgentCog):
             logger.warning("OPENAI_API_KEY not set — OpenAIAgentCog will not function")
         self._client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+    async def _call_ai(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_urls: list[str] | None = None,
+    ) -> AIResponse:
+        # Build input: plain text or multimodal content blocks with images
+        if image_urls:
+            input_content: list[dict] = [{"type": "input_text", "text": user_prompt}]
+            for url in image_urls:
+                input_content.append({"type": "input_image", "image_url": url})
+            ai_input: str | list[dict] = input_content
+        else:
+            ai_input = user_prompt
+
         response = await self._client.responses.create(
             model=self.ai_model,
             instructions=system_prompt,
-            input=user_prompt,
+            input=ai_input,
             tools=[
                 {"type": "web_search"},
             ],
