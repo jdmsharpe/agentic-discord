@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class GrokAgentCog(BaseAgentCog):
     agent_redis_name = "grok"
-    ai_model = "grok-4.20-beta-latest-reasoning"
+    ai_model = "grok-4.20"
     image_model = "grok-imagine-image-pro"
 
     def __init__(self, bot: discord.Bot):

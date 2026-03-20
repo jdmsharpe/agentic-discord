@@ -829,7 +829,7 @@ class TestComputeTokenCost(unittest.TestCase):
         # grok-4.20: output=6.00 per 1M
         # reasoning tokens should add to output cost
         cost = _compute_token_cost(
-            "grok-4.20-beta-latest-reasoning", 0, 0, reasoning_tokens=1_000_000
+            "grok-4.20", 0, 0, reasoning_tokens=1_000_000
         )
         self.assertAlmostEqual(cost, 6.00)
 
