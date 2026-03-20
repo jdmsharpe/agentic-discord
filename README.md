@@ -133,7 +133,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | ----- | ---------- | ----- | ----------- | ------ |
 | GPT Bot | gpt-5.4 | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction, reasoning token tracking |
 | Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL | Adaptive thinking, cache token tracking |
-| Google Bot | gemini-3.1-pro-preview | google_search, google_maps, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, Maps grounding cost tracking, tool compatibility filtering |
+| Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, tool compatibility filtering |
 | Grok Bot | grok-4.20 | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking |
 
 ## Cost Tracking
@@ -147,9 +147,9 @@ Every API call is tracked with per-call cost computation, logging, Discord embed
 - **OpenAI**: Reasoning tokens (extracted from `output_tokens_details`, subtracted from `output_tokens` to avoid double-counting), cached input tokens (50% input price), web search calls ($0.01/call)
 - **Anthropic**: Cache creation tokens (2x input price) and cache read tokens (0.1x input price)
 - **Grok**: Reasoning tokens (billed at output price)
-- **Gemini**: Thinking tokens (billed at output price), Maps grounding calls ($0.025/grounded prompt)
+- **Gemini**: Thinking tokens (billed at output price)
 
-**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `ai_calls`, `image_calls`, `web_search_calls`, `maps_grounding_calls`, `emoji_reactions` (30-day TTL).
+**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `ai_calls`, `image_calls`, `web_search_calls`, `emoji_reactions` (30-day TTL).
 
 **Pricing**: `MODEL_PRICING` in `agent_cogs/base.py` maps model names to cost per 1M tokens (text) or flat per-image cost. Update when provider pricing changes. Current rates (synced from `discord-bot` repo):
 

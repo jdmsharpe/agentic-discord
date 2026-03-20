@@ -138,13 +138,13 @@ CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
 ## Conventions
 
 - New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image(prompt)`; set `ai_model` and `image_model` class attributes for cost tracking
-- `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (OpenAI, $0.01/call flat rate), `maps_grounding_calls` (Gemini, $0.025/grounded prompt) — set these in `_call_ai()` for accurate cost tracking; OpenAI includes reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
+- `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (OpenAI, $0.01/call flat rate) — set these in `_call_ai()` for accurate cost tracking; OpenAI includes reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
 - Anthropic thinking modes: `{"type": "adaptive"}` (model self-selects budget, no extra fields) vs `{"type": "enabled", "budget_tokens": N}` (fixed budget) — mixing them (e.g. `adaptive` + `budget_tokens`) causes a 400
 - `_compute_token_cost()` handles Anthropic cache tokens (2x/0.1x input price), OpenAI cached input (50% input price), and reasoning tokens (output price) automatically
 - `format_api_error()` in `base.py` extracts structured error info from any provider's exceptions
 - `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads — use it instead of creating per-request sessions
 - All Redis keys follow `agent:{name}:*` namespace
-- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, maps_grounding_calls, emoji_reactions) with 30-day TTL; cost embed shows `+ N thinking` when reasoning_tokens > 0, `web search ×N` when web_search_calls > 0, `maps ×N` when maps_grounding_calls > 0
+- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, emoji_reactions) with 30-day TTL; cost embed shows `+ N thinking` when reasoning_tokens > 0, `web search ×N` when web_search_calls > 0
 - `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image; keep in sync with pricing in `discord-bot` repo (`src/cogs/{provider}/util.py`)
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
