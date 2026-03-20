@@ -83,7 +83,7 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "gpt-5.4": {"input": 2.50, "output": 15.00},
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
-    "grok-4.20": {"input": 2.00, "output": 6.00},
+    "grok-4.20": {"input": 2.00, "output": 6.00, "cached_input": 0.20},
     # Image models — flat cost per image
     "gpt-image-1.5": {"per_image": 0.034},
     "gemini-3.1-flash-image-preview": {"per_image": 0.067},
@@ -126,11 +126,18 @@ def _compute_token_cost(
         return 0.0
     input_price = pricing["input"]
     output_price = pricing["output"]
-    # OpenAI: cached tokens are included in input_tokens, billed at 50%
+    # OpenAI/Grok: cached tokens are included in input_tokens, billed at a discount
     non_cached_input = input_tokens - cached_input_tokens
+    cached_price = pricing.get("cached_input")
+    if cached_price is not None:
+        # Explicit cached rate (e.g. Grok: $0.20/M vs $2.00/M input)
+        cached_cost = cached_input_tokens * cached_price
+    else:
+        # Default: 50% of input price (OpenAI pattern)
+        cached_cost = cached_input_tokens * input_price * 0.5
     return (
         non_cached_input * input_price
-        + cached_input_tokens * input_price * 0.5
+        + cached_cost
         + (output_tokens + reasoning_tokens) * output_price
         + cache_creation_tokens * input_price * 2.0
         + cache_read_tokens * input_price * 0.1
@@ -365,6 +372,23 @@ def _resolve_mentions(text: str, guild: discord.Guild | None) -> str:
     return text
 
 
+# Image content types that AI providers can process as visual input.
+_IMAGE_CONTENT_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _extract_image_urls(message: discord.Message) -> list[str]:
+    """Extract image attachment URLs from a Discord message.
+
+    Returns URLs for attachments whose content_type is a recognized image format.
+    These can be passed to AI providers for visual understanding.
+    """
+    urls: list[str] = []
+    for att in message.attachments:
+        if att.content_type and att.content_type.split(";")[0] in _IMAGE_CONTENT_TYPES:
+            urls.append(att.url)
+    return urls
+
+
 def _format_discord_history(
     messages: list[discord.Message],
     guild: discord.Guild | None = None,
@@ -560,12 +584,18 @@ class BaseAgentCog(commands.Cog):
     # ------------------------------------------------------------------
 
     @abstractmethod
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+    async def _call_ai(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_urls: list[str] | None = None,
+    ) -> AIResponse:
         """Call the AI provider and return the response with token usage.
 
         Args:
             system_prompt: The decision system prompt with context.
             user_prompt: The conversation history / user message.
+            image_urls: Optional list of image URLs to include as visual input.
 
         Returns:
             AIResponse with raw text (expected JSON) and token counts.
@@ -826,6 +856,10 @@ class BaseAgentCog(commands.Cog):
         # Append the triggering message using the same formatter for consistency
         context_text += "\n" + _format_discord_history([message], guild=guild, theme=mention_theme)
 
+        # Extract image attachment URLs from the triggering message so the AI
+        # can actually *see* attached images, not just a text placeholder.
+        image_urls = _extract_image_urls(message)
+
         result = await self._decide_and_act(
             channel=message.channel,
             context_text=context_text,
@@ -834,6 +868,7 @@ class BaseAgentCog(commands.Cog):
             ),
             react_to_message_id=message.id,
             force_respond=True,  # Don't skip when a human directly @mentions
+            image_urls=image_urls,
         )
 
         # Notify coordinator so other bots can optionally react.
@@ -868,6 +903,7 @@ class BaseAgentCog(commands.Cog):
         react_to_message_id: int | None = None,
         force_respond: bool = False,
         is_conversation_starter: bool = False,
+        image_urls: list[str] | None = None,
     ) -> dict[str, Any]:
         """Call the AI for a decision, then execute the chosen actions.
 
@@ -919,7 +955,7 @@ class BaseAgentCog(commands.Cog):
 
         # Call provider-specific AI
         try:
-            ai_response = await self._call_ai(system_prompt, user_prompt)
+            ai_response = await self._call_ai(system_prompt, user_prompt, image_urls=image_urls)
         except Exception as exc:
             logger.error(
                 "[%s] AI call failed: %s",

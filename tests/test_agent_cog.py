@@ -89,7 +89,7 @@ class MockAgentCog(BaseAgentCog):
         self.mock_ai_response = '{"skip": false, "text": "Hello!", "generate_image": false, "image_prompt": null, "react_emoji": null}'
         self.mock_image_bytes = b"fake_png_bytes"
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+    async def _call_ai(self, system_prompt: str, user_prompt: str, image_urls: list[str] | None = None) -> AIResponse:
         return AIResponse(text=self.mock_ai_response, input_tokens=100, output_tokens=50)
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:

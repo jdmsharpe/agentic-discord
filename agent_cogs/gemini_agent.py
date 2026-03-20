@@ -58,11 +58,30 @@ class GeminiAgentCog(BaseAgentCog):
             logger.warning("GEMINI_API_KEY not set — GeminiAgentCog will not function")
         self._client = genai.Client(api_key=GEMINI_API_KEY)
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+    async def _call_ai(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_urls: list[str] | None = None,
+    ) -> AIResponse:
         tools = _filter_tools_for_model(self.ai_model, _ALL_TOOLS)
+        # Build parts: text + optional inline image data
+        parts: list[dict[str, Any]] = [{"text": user_prompt}]
+        if image_urls:
+            session = await self.get_http_session()
+            for url in image_urls:
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.read()
+                            ct = resp.content_type or "image/png"
+                            mime = ct.split(";")[0]
+                            parts.append({"inline_data": {"mime_type": mime, "data": data}})
+                except Exception:
+                    logger.warning("Failed to download image for Gemini: %s", url)
         response = await self._client.aio.models.generate_content(
             model=self.ai_model,
-            contents=[{"role": "user", "parts": [{"text": user_prompt}]}],
+            contents=[{"role": "user", "parts": parts}],
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 tools=tools,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 
@@ -27,12 +28,44 @@ class AnthropicAgentCog(BaseAgentCog):
             )
         self._client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str) -> AIResponse:
+    async def _call_ai(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_urls: list[str] | None = None,
+    ) -> AIResponse:
+        # Build user content: text + optional base64-encoded images
+        user_content: list[dict] | str
+        if image_urls:
+            blocks: list[dict] = [{"type": "text", "text": user_prompt}]
+            session = await self.get_http_session()
+            for url in image_urls:
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.read()
+                            # Infer media type from Content-Type header
+                            ct = resp.content_type or "image/png"
+                            media_type = ct.split(";")[0]
+                            blocks.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": base64.standard_b64encode(data).decode(),
+                                },
+                            })
+                except Exception:
+                    logger.warning("Failed to download image for Claude: %s", url)
+            user_content = blocks
+        else:
+            user_content = user_prompt
+
         response = await self._client.messages.create(
             model=self.ai_model,
             max_tokens=16384,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[{"role": "user", "content": user_content}],
             tools=[
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
                 {"type": "web_fetch_20260309", "name": "web_fetch", "max_uses": 5, "use_cache": False},
