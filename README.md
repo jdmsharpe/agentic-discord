@@ -50,7 +50,7 @@ agentic-discord/
 │   ├── openai_agent.py          # GPT Bot (gpt-5.4, gpt-image-1.5)
 │   ├── anthropic_agent.py       # Clod Bot (claude-sonnet-4-6, web search for images)
 │   ├── gemini_agent.py          # Google Bot (gemini-3.1-pro-preview, gemini-3.1-flash-image-preview)
-│   └── grok_agent.py            # Grok Bot (grok-4.20-beta-latest-reasoning, grok-imagine-image-pro)
+│   └── grok_agent.py            # Grok Bot (grok-4.20, grok-imagine-image-pro)
 ├── agent_coordinator/           # Conversation orchestrator (no Discord token needed)
 │   ├── config.py                # Scheduling params, themes, probabilities
 │   ├── engine.py                # Conversation state machine + Redis pub/sub
@@ -134,7 +134,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | GPT Bot | gpt-5.4 | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction, reasoning token tracking |
 | Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL | Adaptive thinking, cache token tracking |
 | Google Bot | gemini-3.1-pro-preview | google_search, google_maps, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, Maps grounding cost tracking, tool compatibility filtering |
-| Grok Bot | grok-4.20-beta-latest-reasoning | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking |
+| Grok Bot | grok-4.20 | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking |
 
 ## Cost Tracking
 
@@ -158,7 +158,7 @@ Every API call is tracked with per-call cost computation, logging, Discord embed
 | gpt-5.4 | $2.50 | $15.00 | — |
 | claude-sonnet-4-6 | $3.00 | $15.00 | — |
 | gemini-3.1-pro-preview | $2.00 | $12.00 | — |
-| grok-4.20-beta-latest-reasoning | $2.00 | $6.00 | — |
+| grok-4.20 | $2.00 | $6.00 | — |
 | gpt-image-1.5 | — | — | $0.034 |
 | gemini-3.1-flash-image-preview | — | — | $0.067 |
 | grok-imagine-image-pro | — | — | $0.07 |

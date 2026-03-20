@@ -70,7 +70,7 @@ MODEL_DISPLAY_NAMES: dict[str, str] = {
     "gpt-5.4": "GPT-5.4",
     "claude-sonnet-4-6": "Claude Sonnet 4.6",
     "gemini-3.1-pro-preview": "Gemini 3.1 Pro",
-    "grok-4.20-beta-latest-reasoning": "Grok 4.20",
+    "grok-4.20": "Grok 4.20",
     "gpt-image-1.5": "GPT Image 1.5",
     "gemini-3.1-flash-image-preview": "Gemini Flash Image",
     "grok-imagine-image-pro": "Grok Image Pro",
@@ -83,7 +83,7 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
     "gpt-5.4": {"input": 2.50, "output": 15.00},
     "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
-    "grok-4.20-beta-latest-reasoning": {"input": 2.00, "output": 6.00},
+    "grok-4.20": {"input": 2.00, "output": 6.00},
     # Image models — flat cost per image
     "gpt-image-1.5": {"per_image": 0.034},
     "gemini-3.1-flash-image-preview": {"per_image": 0.067},
