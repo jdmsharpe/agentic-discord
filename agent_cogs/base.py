@@ -59,9 +59,10 @@ class AIResponse:
     cache_creation_tokens: int = 0  # Anthropic: cache write tokens (2x input price)
     cache_read_tokens: int = 0  # Anthropic: cache read tokens (0.1x input price)
     cached_input_tokens: int = 0  # OpenAI: subset of input_tokens cached at 50% input price
-    reasoning_tokens: int = 0  # Grok/Gemini: reasoning/thinking tokens (output price)
+    reasoning_tokens: int = 0  # OpenAI/Grok/Gemini: reasoning/thinking tokens (output price)
     thinking_used: bool = False  # Anthropic: whether thinking blocks were present
     web_search_calls: int = 0  # OpenAI: number of web_search_call items ($0.01/call)
+    maps_grounding_calls: int = 0  # Gemini: number of Maps-grounded prompts ($0.025/call)
 
 
 # Human-friendly model names for cost embeds
@@ -91,6 +92,8 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
 
 # OpenAI Responses API: web_search tool is billed per call (flat rate)
 OPENAI_WEB_SEARCH_COST_PER_CALL: float = 0.01  # $10 / 1000 searches
+# Gemini: Grounding with Google Maps is billed per grounded prompt
+GEMINI_MAPS_GROUNDING_COST_PER_CALL: float = 0.025  # $25 / 1000 grounded prompts
 
 # Embed accent colors per agent
 AGENT_COLORS: dict[str, int] = {
@@ -116,7 +119,7 @@ def _compute_token_cost(
     - cache_creation_tokens: billed at 2x input price (Anthropic)
     - cache_read_tokens: billed at 0.1x input price (Anthropic, separate from input)
     - cached_input_tokens: subset of input_tokens billed at 50% input price (OpenAI)
-    - reasoning_tokens: billed at output price (Grok/Gemini)
+    - reasoning_tokens: billed at output price (OpenAI/Grok/Gemini)
     """
     pricing = MODEL_PRICING.get(model)
     if not pricing or "input" not in pricing:
@@ -938,10 +941,14 @@ class BaseAgentCog(commands.Cog):
             reasoning_tokens=ai_response.reasoning_tokens,
         )
         ai_cost += ai_response.web_search_calls * OPENAI_WEB_SEARCH_COST_PER_CALL
+        ai_cost += ai_response.maps_grounding_calls * GEMINI_MAPS_GROUNDING_COST_PER_CALL
 
-        tool_log = ""
+        tool_parts: list[str] = []
         if ai_response.web_search_calls:
-            tool_log = f" tools=web_search×{ai_response.web_search_calls}"
+            tool_parts.append(f"web_search×{ai_response.web_search_calls}")
+        if ai_response.maps_grounding_calls:
+            tool_parts.append(f"maps×{ai_response.maps_grounding_calls}")
+        tool_log = f" tools={','.join(tool_parts)}" if tool_parts else ""
         logger.info(
             "[%s] Decision in #%s: skip=%s text=%s image=%s emoji=%s | cost=$%.4f (%d in / %d out + %d reasoning%s)",
             self.agent_redis_name,
@@ -1010,7 +1017,7 @@ class BaseAgentCog(commands.Cog):
                 ai_response.input_tokens,
                 ai_response.output_tokens,
                 ai_response.reasoning_tokens,
-                f" web_search×{ai_response.web_search_calls}" if ai_response.web_search_calls else "",
+                tool_log,
             )
         daily_total = await self._accumulate_cost(
             ai_cost, image_cost,
@@ -1018,6 +1025,7 @@ class BaseAgentCog(commands.Cog):
             reasoning_tokens=ai_response.reasoning_tokens,
             image_generated=image_cost > 0,
             web_search_calls=ai_response.web_search_calls,
+            maps_grounding_calls=ai_response.maps_grounding_calls,
         )
 
         will_post = text or image_bytes
@@ -1030,6 +1038,7 @@ class BaseAgentCog(commands.Cog):
                 reasoning_tokens=ai_response.reasoning_tokens,
                 thinking_used=ai_response.thinking_used,
                 web_search_calls=ai_response.web_search_calls,
+                maps_grounding_calls=ai_response.maps_grounding_calls,
                 text_generated=bool(text),
                 image_generated=image_cost > 0,
             )
@@ -1199,6 +1208,7 @@ class BaseAgentCog(commands.Cog):
         reasoning_tokens: int = 0,
         thinking_used: bool = False,
         web_search_calls: int = 0,
+        maps_grounding_calls: int = 0,
         text_generated: bool = False,
         image_generated: bool = False,
     ) -> discord.Embed:
@@ -1227,6 +1237,8 @@ class BaseAgentCog(commands.Cog):
             parts.append(f"{input_tokens:,} tokens in / {out_str}")
         if web_search_calls:
             parts.append(f"web search ×{web_search_calls}")
+        if maps_grounding_calls:
+            parts.append(f"maps ×{maps_grounding_calls}")
         if image_cost > 0:
             parts.append(f"img ${image_cost:.3f}")
         parts.append(f"daily ${daily_total:.2f}")
@@ -1242,6 +1254,7 @@ class BaseAgentCog(commands.Cog):
         reasoning_tokens: int = 0,
         image_generated: bool = False,
         web_search_calls: int = 0,
+        maps_grounding_calls: int = 0,
     ) -> float:
         """Accumulate cost in Redis and return the new daily total.
 
@@ -1267,6 +1280,8 @@ class BaseAgentCog(commands.Cog):
                 pipe.hincrby(key, "image_calls", 1)
             if web_search_calls:
                 pipe.hincrby(key, "web_search_calls", web_search_calls)
+            if maps_grounding_calls:
+                pipe.hincrby(key, "maps_grounding_calls", maps_grounding_calls)
             pipe.expire(key, 2592000)  # 30-day TTL
             results = await pipe.execute()
             return float(results[0])  # new total_cost after increment

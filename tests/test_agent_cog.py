@@ -50,6 +50,7 @@ sys.modules["agent_config"] = fake_config
 from agent_cogs.base import (
     AIResponse,
     BaseAgentCog,
+    GEMINI_MAPS_GROUNDING_COST_PER_CALL,
     OPENAI_WEB_SEARCH_COST_PER_CALL,
     _compute_token_cost,
     _parse_decision,
@@ -886,6 +887,7 @@ class TestAIResponse(unittest.TestCase):
         self.assertEqual(r.cached_input_tokens, 0)
         self.assertEqual(r.reasoning_tokens, 0)
         self.assertEqual(r.web_search_calls, 0)
+        self.assertEqual(r.maps_grounding_calls, 0)
 
     def test_provider_specific_fields(self):
         r = AIResponse(
@@ -896,15 +898,21 @@ class TestAIResponse(unittest.TestCase):
             cache_read_tokens=80,
             reasoning_tokens=200,
             web_search_calls=2,
+            maps_grounding_calls=1,
         )
         self.assertEqual(r.cache_creation_tokens, 10)
         self.assertEqual(r.cache_read_tokens, 80)
         self.assertEqual(r.reasoning_tokens, 200)
         self.assertEqual(r.web_search_calls, 2)
+        self.assertEqual(r.maps_grounding_calls, 1)
 
     def test_openai_web_search_cost_per_call(self):
         # Each web_search call costs $0.01 flat; applied on top of token cost
         self.assertAlmostEqual(OPENAI_WEB_SEARCH_COST_PER_CALL, 0.01)
+
+    def test_gemini_maps_grounding_cost_per_call(self):
+        # Each Maps-grounded prompt costs $0.025 flat
+        self.assertAlmostEqual(GEMINI_MAPS_GROUNDING_COST_PER_CALL, 0.025)
 
 
 # ---------------------------------------------------------------------------

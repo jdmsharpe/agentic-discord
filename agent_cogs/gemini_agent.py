@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Models not listed are assumed to NOT support the tool.
 _TOOL_MODEL_COMPATIBILITY: dict[str, set[str]] = {
     "google_maps": {
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3-flash-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
@@ -36,6 +39,7 @@ _TOOL_MODEL_COMPATIBILITY: dict[str, set[str]] = {
 # All tools this agent can request, subject to model compatibility.
 _ALL_TOOLS: list[dict[str, Any]] = [
     {"google_search": {}},
+    {"google_maps": {}},
     {"url_context": {}},
 ]
 
@@ -81,11 +85,22 @@ class GeminiAgentCog(BaseAgentCog):
             input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
             output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(response.usage_metadata, "thoughts_token_count", 0) or 0
+        # Detect Maps grounding: billed per prompt that returns ≥1 Maps source
+        maps_grounding_calls = 0
+        candidates = getattr(response, "candidates", None)
+        if candidates:
+            grounding = getattr(candidates[0], "grounding_metadata", None)
+            if grounding:
+                for chunk in getattr(grounding, "grounding_chunks", None) or []:
+                    if getattr(chunk, "maps", None):
+                        maps_grounding_calls = 1
+                        break
         return AIResponse(
             text=response.text or "",
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=thinking_tokens,
+            maps_grounding_calls=maps_grounding_calls,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
