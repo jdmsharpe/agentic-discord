@@ -74,12 +74,20 @@ class GrokAgentCog(BaseAgentCog):
                 reasoning_tokens = getattr(output_details, "reasoning_tokens", 0) or 0
             # xAI includes reasoning in output_tokens — subtract to avoid double-counting
             output_tokens = max(output_tokens - reasoning_tokens, 0)
+        # Count web_search_call items — xAI uses the same Responses API format as OpenAI
+        web_search_calls = sum(
+            1 for item in (response.output or [])
+            if getattr(item, "type", "") == "web_search_call"
+        )
+        if web_search_calls:
+            logger.info("[grok] web_search called %d time(s) this turn", web_search_calls)
         return AIResponse(
             text=response.output_text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_input_tokens=cached_input_tokens,
             reasoning_tokens=reasoning_tokens,
+            web_search_calls=web_search_calls,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
