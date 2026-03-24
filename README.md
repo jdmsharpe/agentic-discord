@@ -256,7 +256,7 @@ COORDINATOR_ACTIVE_END=23
 COORDINATOR_MAX_ROUNDS=40
 COORDINATOR_REACTIVE_PROBABILITY=0.15
 COORDINATOR_FIRE_ON_STARTUP=false  # set true for testing
-CONTEXT_WINDOW_SIZE=15       # max context messages (per-theme windows scale down from this)
+CONTEXT_WINDOW_SIZE=25       # max context messages (per-theme windows scale down from this)
 ```
 
 `AGENT_NAME` is the only per-instance value — passed at runtime, not in .env:
