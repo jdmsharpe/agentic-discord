@@ -27,6 +27,7 @@ run_all.py
 | `agent_config.py` | Shared runtime config loaded from `.env` |
 | `run_all.py` | Launches all 4 bots + coordinator in a single process |
 | `run_bot.py` | Single-bot launcher (`AGENT_NAME=chatgpt python run_bot.py`) |
+| `dashboard.py` | Cost monitoring web dashboard (aiohttp + Chart.js, reads Redis) |
 | `tests/test_agent_cog.py` | Unit tests for BaseAgentCog |
 | `tests/test_coordinator.py` | Unit tests for coordinator engine |
 
@@ -96,7 +97,7 @@ Key env vars:
 - `REDIS_URL` — defaults to `redis://127.0.0.1:6379`
 - `AGENT_MAX_DAILY`, `AGENT_COOLDOWN_SECONDS` — rate limiting (required, no defaults)
 - `SHOW_COST_EMBEDS` — toggle cost embed messages in Discord (default `true`)
-- `CONTEXT_WINDOW_SIZE` — max messages sent to AI as context (required, no default); per-theme windows scale down from this value (debate/story 100%, news/science 80%, casual 55%, memes/roast 35%)
+- `CONTEXT_WINDOW_SIZE` — max messages sent to AI as context (required, no default); per-theme scale factors in `agent_config.py`: 100% (debate, story, hypothetical, prediction), 80% (news, science, finance, spiritual), 55% (casual, vent, would-you-rather), 35% (memes, roast)
 - `CHANNEL_THEME_MAP` — `channel_id:theme,...` mapping; `AGENT_CHANNEL_IDS` is derived from this (themes: casual, debate, memes, roast, story, news, science, finance, prediction, hypothetical, spiritual, would-you-rather, vent)
 - `BOTS_ROLE_ID` — Discord role ID for the shared @bots role; when mentioned, all agents respond independently
 - `AGENT_PERSONALITY` — optional global personality override (applies to all bots if set)
@@ -110,6 +111,7 @@ Key env vars:
 - `COORDINATOR_REACTIVE_PROBABILITY` — chance a human @mention triggers other bots to join (default `0.15`)
 - `COORDINATOR_TURN_DELAY_MIN` / `COORDINATOR_TURN_DELAY_MAX` — random delay range (seconds) between agent turns (defaults `15.0` / `45.0`)
 - `AGENT_RESPONSE_TIMEOUT` — hardcoded 90s in `config.py`; covers AI call + image gen + Discord post
+- `COORDINATOR_TIMEOUT_THRESHOLD` — consecutive timeouts before coordinator exits for systemd restart (default `8`)
 
 ## Running Locally
 
@@ -123,7 +125,10 @@ pip install -r requirements.txt
 
 python run_all.py                          # all 4 bots + coordinator
 AGENT_NAME=gemini python run_bot.py        # single bot
+python dashboard.py                        # cost dashboard on :8080
 ```
+
+Docker is also supported via `Dockerfile` (production) and `Dockerfile.test` (CI).
 
 ## Tests
 
@@ -133,20 +138,20 @@ python -m unittest discover -s tests -v  # alternative
 ```
 
 Tests mock out Redis, Discord, and all AI provider SDKs — no live connections needed.
-CI runs on every push/PR to `main` via `.github/workflows/ci.yml`.
+CI (`Docker CI` workflow) runs tests and builds Docker images on every push/PR to `main`.
 
 ## Conventions
 
 - New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image(prompt)`; set `ai_model` and `image_model` class attributes for cost tracking
-- `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI/Grok, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (OpenAI, $0.01/call flat rate) — set these in `_call_ai()` for accurate cost tracking; OpenAI/Grok include reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
-- Grok agent uses the OpenAI SDK (`AsyncOpenAI`) pointed at `https://api.x.ai/v1` (Responses API), not the native `xai_sdk`; includes `prompt_cache_key` (per-instance UUID for server-sticky routing), `prompt_cache_retention="24h"`, and `context_management` compaction; tools: `web_search` + `x_search`
-- Anthropic thinking modes: `{"type": "adaptive"}` (model self-selects budget, no extra fields) vs `{"type": "enabled", "budget_tokens": N}` (fixed budget) — mixing them (e.g. `adaptive` + `budget_tokens`) causes a 400
+- `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI/Grok, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (OpenAI, $0.01/call), `maps_grounding_calls` (Gemini, $0.025/call) — set these in `_call_ai()` for accurate cost tracking; OpenAI/Grok include reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
+- Grok agent uses `AsyncOpenAI` pointed at `https://api.x.ai/v1` (Responses API); includes `prompt_cache_key` (per-instance UUID for server-sticky routing), `prompt_cache_retention="24h"`, and `context_management` compaction; tools: `web_search` + `x_search`
+- Anthropic agent uses `web_fetch_20260309` tool (max 5 uses, caching disabled) and adaptive thinking (`{"type": "adaptive"}` — model self-selects budget); do not mix `adaptive` + `budget_tokens` (causes 400)
 - `_compute_token_cost()` handles Anthropic cache tokens (2x/0.1x input price), OpenAI cached input (50% input price), and reasoning tokens (output price) automatically
 - `format_api_error()` in `base.py` extracts structured error info from any provider's exceptions
 - `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads — use it instead of creating per-request sessions
 - All Redis keys follow `agent:{name}:*` namespace
-- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, emoji_reactions) with 30-day TTL; cost embed shows `+ N thinking` when reasoning_tokens > 0, `web search ×N` when web_search_calls > 0
-- `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image; keep in sync with pricing in `discord-bot` repo (`src/cogs/{provider}/util.py`)
+- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, maps_grounding_calls, emoji_reactions) with 30-day TTL
+- `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
 - Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
