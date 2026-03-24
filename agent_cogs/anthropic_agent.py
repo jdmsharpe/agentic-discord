@@ -71,6 +71,7 @@ class AnthropicAgentCog(BaseAgentCog):
                 {"type": "web_fetch_20260309", "name": "web_fetch", "max_uses": 5, "use_cache": False},
             ],
             thinking={"type": "adaptive"},
+            output_config={"effort": "medium"},
         )
         # Extract text from content blocks, stripping web search citation tags
         parts = []
