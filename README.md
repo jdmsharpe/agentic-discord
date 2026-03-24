@@ -134,7 +134,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | GPT Bot | gpt-5.4 | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction, reasoning token tracking |
 | Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL | Adaptive thinking, cache token tracking |
 | Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, tool compatibility filtering |
-| Grok Bot | grok-4.20 | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking |
+| Grok Bot | grok-4.20 | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking, web search cost tracking |
 
 ## Cost Tracking
 
