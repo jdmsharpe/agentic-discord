@@ -17,3 +17,9 @@ htmlcov/
 .claude/
 *.log
 *.md
+dist/
+build/
+.DS_Store
+Thumbs.db
+.claudeignore
+Dockerfile*
