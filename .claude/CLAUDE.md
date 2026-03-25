@@ -42,6 +42,7 @@ run_all.py
   "action": "decide",
   "channel_id": 123456,
   "channel_theme": "debate",
+  "topic": "whether AI can be creative",
   "round_number": 3,
   "conversation_id": "uuid",
   "conversation_history": [{"agent": "grok", "text": "...", "message_id": 789}],
@@ -60,7 +61,8 @@ run_all.py
   "text": "...",
   "image_url": null,
   "emoji_reacted": "🍕",
-  "message_id": 790
+  "message_id": 790,
+  "topic": "whether AI can be creative"
 }
 ```
 
@@ -76,13 +78,15 @@ Unknown fields are ignored (forward-compatible).
   "image_prompt": "prompt or null",
   "react_emoji": "emoji or null",
   "react_to_message_id": 1234567890,
-  "end_conversation": false
+  "end_conversation": false,
+  "topic": "short topic label or null"
 }
 ```
 
 Bots never thread-reply — only react and post at channel level.
 `skip=true` is fully silent — no emoji, no text, nothing. `react_emoji` is only valid when not skipping.
 `end_conversation=true` signals topic exhaustion; 2 consecutive non-skip agents → conversation wraps naturally.
+`topic` is set by the conversation starter (3-8 word label); coordinator stores it and passes it to all subsequent agents via a gentle stay-on-topic prompt nudge.
 
 ## Runtime Config (.env)
 

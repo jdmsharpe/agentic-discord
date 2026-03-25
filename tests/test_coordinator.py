@@ -335,6 +335,49 @@ class TestRunRound(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_run_round_captures_topic_from_starter(self):
+        state = ConversationState(channel_id=100)
+        state.round_number = 1
+
+        async def mock_send(s, agent_name, is_starter=False):
+            if is_starter:
+                return {"skipped": False, "text": "Let's talk about AI safety", "message_id": 1, "topic": "AI safety regulations"}
+            return {"skipped": False, "text": "Good topic!", "message_id": 2}
+
+        self.engine._send_turn = mock_send
+
+        async def run():
+            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
+                await self.engine._run_round(state)
+
+            self.assertEqual(state.topic, "AI safety regulations")
+
+        asyncio.run(run())
+
+    def test_topic_included_in_instruction(self):
+        state = ConversationState(channel_id=100, channel_theme="debate")
+        state.topic = "AI safety regulations"
+        state.round_number = 2
+
+        async def run():
+            published_instructions = []
+
+            async def fake_publish(channel, data):
+                instruction = json.loads(data)
+                published_instructions.append(instruction)
+                iid = instruction["instruction_id"]
+                if iid in self.engine._pending_responses:
+                    self.engine._pending_responses[iid].set_result({
+                        "skipped": False, "text": "hi", "message_id": 1
+                    })
+
+            self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
+            await self.engine._send_turn(state, "chatgpt")
+
+            self.assertEqual(published_instructions[0]["topic"], "AI safety regulations")
+
+        asyncio.run(run())
+
     def test_run_round_no_starter_in_round_2(self):
         state = ConversationState(channel_id=100)
         state.round_number = 2
