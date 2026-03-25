@@ -223,7 +223,7 @@ You're a peer, not an assistant.
 Personality: {personality}
 
 Channel: #{channel_name}: {channel_rules}
-
+{topic_line}
 History uses [msg:ID] prefixes and [reactions: emoji (name)] suffixes. Never include these in your text.
 
 RULES:
@@ -233,7 +233,8 @@ RULES:
 4. Set end_conversation=true when the topic is exhausted.
 5. Respond with ONLY a JSON object:
 {{"skip": bool, "text": str|null, "generate_image": bool, "image_prompt": str|null, \
-"react_emoji": str|null, "react_to_message_id": int|null, "end_conversation": bool}}
+"react_emoji": str|null, "react_to_message_id": int|null, "end_conversation": bool, \
+"topic": str|null}}
 """
 
 
@@ -746,6 +747,7 @@ class BaseAgentCog(commands.Cog):
             context_text=context_str,
             channel_name=channel.name if hasattr(channel, "name") else str(channel_id),
             channel_theme=channel_theme,
+            topic=instruction.get("topic", ""),
             react_to_message_id=self._last_message_id_from_history(
                 conversation_history
             ),
@@ -900,6 +902,7 @@ class BaseAgentCog(commands.Cog):
         context_text: str,
         channel_name: str,
         channel_theme: str = "",
+        topic: str = "",
         react_to_message_id: int | None = None,
         force_respond: bool = False,
         is_conversation_starter: bool = False,
@@ -929,7 +932,8 @@ class BaseAgentCog(commands.Cog):
         if is_conversation_starter:
             skip_rule = (
                 "You are STARTING a new conversation. You MUST respond (skip=false). "
-                "Open with something fresh that fits this channel's theme."
+                "Open with something fresh that fits this channel's theme. "
+                "Set \"topic\" to a short label (3-8 words) describing the topic you chose."
             )
         elif force_respond:
             skip_rule = (
@@ -940,12 +944,21 @@ class BaseAgentCog(commands.Cog):
         else:
             skip_rule = "SKIP most messages (~50-60%). Only respond when you genuinely have something to add."
 
+        if topic:
+            topic_line = (
+                f"\nConversation topic: {topic} — stay on-topic. "
+                "Brief tangents are fine."
+            )
+        else:
+            topic_line = ""
+
         system_prompt = DECISION_SYSTEM_PROMPT.format(
             agent_display_name=self.agent_display_name,
             other_agents=", ".join(other_names),
             personality=self._resolve_personality(),
             channel_name=channel_name,
             channel_rules=channel_rules,
+            topic_line=topic_line,
             skip_rule=skip_rule,
         )
 
@@ -1134,6 +1147,10 @@ class BaseAgentCog(commands.Cog):
         # Pass through end_conversation signal for the coordinator
         if decision.get("end_conversation"):
             result["end_conversation"] = True
+
+        # Pass through topic (set by conversation starters)
+        if decision.get("topic"):
+            result["topic"] = decision["topic"]
 
         return result
 

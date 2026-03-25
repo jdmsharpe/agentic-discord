@@ -39,6 +39,7 @@ class ConversationState:
     conversation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     channel_id: int = 0
     channel_theme: str = "casual"
+    topic: str = ""
     round_number: int = 0
     conversation_history: list[dict] = field(default_factory=list)
     text_responses_this_round: int = 0
@@ -240,6 +241,11 @@ class ConversationEngine:
             is_starter = is_first_round and i == 0
             result = await self._send_turn(state, agent_name, is_starter=is_starter)
 
+            # Capture topic from the starter's response
+            if is_starter and result.get("topic"):
+                state.topic = result["topic"]
+                logger.info("Conversation topic set: %s", state.topic)
+
             if result.get("skipped", True):
                 state.total_skips_this_round += 1
             else:
@@ -293,6 +299,7 @@ class ConversationEngine:
             "action": "decide",
             "channel_id": state.channel_id,
             "channel_theme": state.channel_theme,
+            "topic": state.topic,
             "round_number": state.round_number,
             "conversation_id": state.conversation_id,
             "conversation_history": state.conversation_history[-get_context_window(state.channel_theme):],
