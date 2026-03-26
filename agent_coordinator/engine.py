@@ -23,6 +23,7 @@ from .config import (
     CONTINUATION_DECAY,
     MAX_ROUNDS,
     MIN_RESPONDENTS_TO_CONTINUE,
+    PRIORITY_CHANNEL_IDS,
     REACTIVE_COOLDOWN_SECONDS,
     REACTIVE_TRIGGER_PROBABILITY,
     TURN_DELAY_MAX,
@@ -157,12 +158,22 @@ class ConversationEngine:
         today = datetime.date.today().isoformat()
         key = f"coordinator:channel_queue:{today}"
 
-        # Seed the queue on first access today
+        # Warn about misconfigured priority channels (once per queue creation)
+        invalid = [c for c in PRIORITY_CHANNEL_IDS if c not in AGENT_CHANNEL_IDS]
+        if invalid:
+            logger.warning(
+                "Priority channels not in CHANNEL_THEME_MAP (ignored): %s", invalid
+            )
+
+        # Seed the queue on first access today — priority channels first, then the rest
         if not await self._redis.exists(key):
-            shuffled = random.sample(AGENT_CHANNEL_IDS, len(AGENT_CHANNEL_IDS))
-            await self._redis.rpush(key, *[str(c) for c in shuffled])
+            valid_priority = [c for c in PRIORITY_CHANNEL_IDS if c in AGENT_CHANNEL_IDS]
+            non_priority = [c for c in AGENT_CHANNEL_IDS if c not in valid_priority]
+            ordered = random.sample(valid_priority, len(valid_priority)) + \
+                      random.sample(non_priority, len(non_priority))
+            await self._redis.rpush(key, *[str(c) for c in ordered])
             await self._redis.expire(key, 172800)  # 48h TTL — auto-cleanup
-            logger.info("Daily channel queue created for %s: %s", today, shuffled)
+            logger.info("Daily channel queue created for %s: %s", today, ordered)
 
         channel_id = await self._redis.lpop(key)
         if channel_id:

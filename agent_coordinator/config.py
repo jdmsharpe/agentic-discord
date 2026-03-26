@@ -25,13 +25,13 @@ for entry in _theme_map_str.split(","):
 AGENT_CHANNEL_IDS: list[int] = list(CHANNEL_THEMES.keys())
 
 # Scheduling
-SCHEDULE_MIN_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MIN", "5"))
-SCHEDULE_MAX_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MAX", "10"))
+SCHEDULE_MIN_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MIN", "3"))
+SCHEDULE_MAX_EVENTS: int = int(os.getenv("COORDINATOR_SCHEDULE_MAX", "6"))
 SCHEDULE_ACTIVE_START_HOUR: int = int(os.getenv("COORDINATOR_ACTIVE_START", "7"))
 SCHEDULE_ACTIVE_END_HOUR: int = int(os.getenv("COORDINATOR_ACTIVE_END", "23"))
 
 # Conversation
-MAX_ROUNDS: int = int(os.getenv("COORDINATOR_MAX_ROUNDS", "40"))
+MAX_ROUNDS: int = int(os.getenv("COORDINATOR_MAX_ROUNDS", "30"))
 AGENT_RESPONSE_TIMEOUT: float = 90.0
 CONTINUATION_BASE_PROBABILITY: float = 0.85
 CONTINUATION_DECAY: float = 0.03
@@ -46,6 +46,12 @@ FIRE_ON_STARTUP: bool = os.getenv("COORDINATOR_FIRE_ON_STARTUP", "false").lower(
 # Reactive triggers
 REACTIVE_TRIGGER_PROBABILITY: float = float(os.getenv("COORDINATOR_REACTIVE_PROBABILITY", "0.15"))
 REACTIVE_COOLDOWN_SECONDS: float = 300.0
+
+# Priority channels — these channels get conversations first each day
+_priority_str = os.getenv("COORDINATOR_PRIORITY_CHANNELS", "")
+PRIORITY_CHANNEL_IDS: list[int] = [
+    int(cid.strip()) for cid in _priority_str.split(",") if cid.strip()
+]
 
 # Pacing — random delay between agent turns within a conversation
 TURN_DELAY_MIN: float = float(os.getenv("COORDINATOR_TURN_DELAY_MIN", "15.0"))
