@@ -811,20 +811,20 @@ class TestComputeTokenCost(unittest.TestCase):
         self.assertAlmostEqual(cost, 0.0)
 
     def test_cache_creation_tokens(self):
-        # claude-opus-4-6: input=15.00, output=75.00
-        # cache_creation = 2x input price = 30.00 per 1M
+        # claude-sonnet-4-6: input=3.00, output=15.00
+        # cache_creation = 2x input price = 6.00 per 1M
         cost = _compute_token_cost(
-            "claude-opus-4-6", 0, 0, cache_creation_tokens=1_000_000
+            "claude-sonnet-4-6", 0, 0, cache_creation_tokens=1_000_000
         )
-        self.assertAlmostEqual(cost, 30.00)
+        self.assertAlmostEqual(cost, 6.00)
 
     def test_cache_read_tokens(self):
-        # claude-opus-4-6: input=15.00
-        # cache_read = 0.1x input price = 1.50 per 1M
+        # claude-sonnet-4-6: input=3.00
+        # cache_read = 0.1x input price = 0.30 per 1M
         cost = _compute_token_cost(
-            "claude-opus-4-6", 0, 0, cache_read_tokens=1_000_000
+            "claude-sonnet-4-6", 0, 0, cache_read_tokens=1_000_000
         )
-        self.assertAlmostEqual(cost, 1.50)
+        self.assertAlmostEqual(cost, 0.30)
 
     def test_reasoning_tokens_billed_at_output_rate(self):
         # grok-4.20: output=6.00 per 1M
@@ -861,15 +861,15 @@ class TestComputeTokenCost(unittest.TestCase):
         self.assertAlmostEqual(cost, 1.25)
 
     def test_combined_tokens(self):
-        # claude-opus-4-6: input=15.00, output=75.00
+        # claude-sonnet-4-6: input=3.00, output=15.00
         cost = _compute_token_cost(
-            "claude-opus-4-6",
-            500_000,    # input: 500k * 15.00/1M = 7.50
-            200_000,    # output: 200k * 75.00/1M = 15.00
-            cache_creation_tokens=100_000,  # 100k * 15.00 * 2 / 1M = 3.00
-            cache_read_tokens=1_000_000,    # 1M * 15.00 * 0.1 / 1M = 1.50
+            "claude-sonnet-4-6",
+            500_000,    # input: 500k * 3.00/1M = 1.50
+            200_000,    # output: 200k * 15.00/1M = 3.00
+            cache_creation_tokens=100_000,  # 100k * 3.00 * 2 / 1M = 0.60
+            cache_read_tokens=1_000_000,    # 1M * 3.00 * 0.1 / 1M = 0.30
         )
-        self.assertAlmostEqual(cost, 27.00)
+        self.assertAlmostEqual(cost, 5.40)
 
 
 # ---------------------------------------------------------------------------
