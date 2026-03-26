@@ -298,6 +298,10 @@ def _relative_time(dt: datetime.datetime) -> str:
     return f"{seconds // 86400}d ago"
 
 
+_NO_MESSAGES_SENTINEL = "(No messages yet — you're starting the conversation.)"
+_COST_KEY_TTL_SECONDS = 2_592_000  # 30 days
+
+
 def _format_conversation_history(
     messages: list[dict[str, Any]], theme: str | None = None
 ) -> str:
@@ -307,7 +311,7 @@ def _format_conversation_history(
     Reaction entries are merged inline with their target messages.
     """
     if not messages:
-        return "(No messages yet — you're starting the conversation.)"
+        return _NO_MESSAGES_SENTINEL
 
     windowed = messages[-get_context_window(theme):]
 
@@ -487,6 +491,53 @@ def format_api_error(error: Exception) -> str:
     return message
 
 
+def _extract_responses_api_usage(
+    response: Any,
+) -> tuple[int, int, int, int, int]:
+    """Extract token usage from an OpenAI-compatible Responses API response.
+
+    Returns (input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, web_search_calls).
+    Output tokens have reasoning tokens subtracted to avoid double-counting.
+    """
+    input_tokens = 0
+    output_tokens = 0
+    cached_input_tokens = 0
+    reasoning_tokens = 0
+    if hasattr(response, "usage") and response.usage:
+        usage = response.usage
+        input_tokens = getattr(usage, "input_tokens", 0) or 0
+        output_tokens = getattr(usage, "output_tokens", 0) or 0
+        input_details = getattr(usage, "input_tokens_details", None)
+        if input_details:
+            cached_input_tokens = getattr(input_details, "cached_tokens", 0) or 0
+        output_details = getattr(usage, "output_tokens_details", None)
+        if output_details:
+            reasoning_tokens = getattr(output_details, "reasoning_tokens", 0) or 0
+        # Providers include reasoning in output_tokens — subtract to avoid double-counting
+        output_tokens = max(output_tokens - reasoning_tokens, 0)
+    web_search_calls = sum(
+        1 for item in (response.output or [])
+        if getattr(item, "type", "") == "web_search_call"
+    )
+    return input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, web_search_calls
+
+
+async def _download_image_bytes(
+    session: aiohttp.ClientSession, url: str
+) -> tuple[bytes, str] | None:
+    """Download image bytes from a URL, returning (data, media_type) or None on failure."""
+    try:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.read()
+                ct = resp.content_type or "image/png"
+                media_type = ct.split(";")[0]
+                return data, media_type
+    except Exception:
+        logger.warning("Failed to download image: %s", url)
+    return None
+
+
 class BaseAgentCog(commands.Cog):
     """Base class for AI agent cogs. Subclass and implement _call_ai()."""
 
@@ -496,6 +547,13 @@ class BaseAgentCog(commands.Cog):
     # Model identifiers for cost tracking — subclasses should override these.
     ai_model: str = ""
     image_model: str = ""
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if cls.agent_redis_name == "ai":
+            raise TypeError(
+                f"{cls.__name__} must override agent_redis_name (got default 'ai')"
+            )
 
     def __init__(self, bot: discord.Bot):
         self.bot = bot
@@ -628,8 +686,8 @@ class BaseAgentCog(commands.Cog):
         delay = 1
 
         while True:
+            pubsub = self._redis.pubsub()
             try:
-                pubsub = self._redis.pubsub()
                 await pubsub.subscribe(channel_name)
                 logger.info("Subscribed to Redis channel: %s", channel_name)
                 delay = 1  # reset backoff on successful subscribe
@@ -653,15 +711,18 @@ class BaseAgentCog(commands.Cog):
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._LISTENER_MAX_BACKOFF)
+            finally:
+                await pubsub.aclose()
 
     async def _handle_instruction(self, instruction: dict[str, Any]) -> None:
         """Process a single instruction from the coordinator."""
         protocol_version = instruction.get("protocol_version", 1)
         if protocol_version > 1:
             logger.warning(
-                "Received protocol_version %s (we support 1), processing anyway",
+                "Dropping instruction with protocol_version %s (we support 1)",
                 protocol_version,
             )
+            return
 
         action = instruction.get("action")
         if action != "decide":
@@ -676,8 +737,8 @@ class BaseAgentCog(commands.Cog):
             )
             return
 
-        channel = self.bot.get_channel(channel_id)
-        if channel is None:
+        raw_channel = self.bot.get_channel(channel_id)
+        if raw_channel is None:
             logger.warning("Channel %s not found in bot cache", channel_id)
             await self._publish_result(
                 instruction.get("instruction_id", ""),
@@ -687,6 +748,12 @@ class BaseAgentCog(commands.Cog):
                 },
             )
             return
+
+        # Narrow to a concrete text-capable channel type for pyright
+        if not isinstance(raw_channel, (discord.TextChannel, discord.Thread)):
+            logger.warning("Channel %s is not a text channel, skipping", channel_id)
+            return
+        channel: discord.TextChannel | discord.Thread = raw_channel
 
         # Check rate limits
         if not self._check_rate_limits(channel_id):
@@ -729,10 +796,9 @@ class BaseAgentCog(commands.Cog):
             discord_backdrop = ""
 
         if discord_backdrop:
-            no_messages = "(No messages yet — you're starting the conversation.)"
             conv_label = (
                 coordinator_context
-                if coordinator_context != no_messages
+                if coordinator_context != _NO_MESSAGES_SENTINEL
                 else "(Just starting.)"
             )
             context_str = (
@@ -745,7 +811,7 @@ class BaseAgentCog(commands.Cog):
         result = await self._decide_and_act(
             channel=channel,
             context_text=context_str,
-            channel_name=channel.name if hasattr(channel, "name") else str(channel_id),
+            channel_name=channel.name,
             channel_theme=channel_theme,
             topic=instruction.get("topic", ""),
             react_to_message_id=self._last_message_id_from_history(
@@ -766,7 +832,7 @@ class BaseAgentCog(commands.Cog):
         return None
 
     async def _fetch_channel_backdrop(
-        self, channel: discord.abc.Messageable, theme: str = ""
+        self, channel: discord.TextChannel | discord.Thread, theme: str = ""
     ) -> str:
         """Fetch recent Discord messages for channel context before a new conversation."""
         try:
@@ -775,8 +841,7 @@ class BaseAgentCog(commands.Cog):
             async for msg in channel.history(limit=limit):
                 messages.append(msg)
             messages.reverse()
-            guild = channel.guild if hasattr(channel, "guild") else None
-            return _format_discord_history(messages, guild=guild)
+            return _format_discord_history(messages, guild=channel.guild)
         except Exception:
             logger.exception("Failed to fetch channel backdrop")
             return ""
@@ -814,16 +879,13 @@ class BaseAgentCog(commands.Cog):
         mention_type = (
             "role @bots" if role_mention and not direct_mention else "@mention"
         )
+        channel_name = getattr(message.channel, "name", str(message.channel.id))
         logger.info(
             "[%s] %s from %s in #%s (msg:%s)",
             self.agent_redis_name,
             mention_type,
             message.author,
-            (
-                message.channel.name
-                if hasattr(message.channel, "name")
-                else message.channel.id
-            ),
+            channel_name,
             message.id,
         )
 
@@ -866,9 +928,8 @@ class BaseAgentCog(commands.Cog):
         result = await self._decide_and_act(
             channel=message.channel,
             context_text=context_text,
-            channel_name=(
-                message.channel.name if hasattr(message.channel, "name") else ""
-            ),
+            channel_name=channel_name,
+            channel_theme=mention_theme or "",
             react_to_message_id=message.id,
             force_respond=True,  # Don't skip when a human directly @mentions
             image_urls=image_urls,
@@ -918,10 +979,8 @@ class BaseAgentCog(commands.Cog):
         # the channel name doesn't prime the model toward AI topics.
         channel_name = channel_name.removeprefix("ai-")
 
-        # Build the system prompt
-        other_names = [
-            n for n in self.other_agent_names if n != self.agent_display_name
-        ]
+        # Build the system prompt (other_agent_names already excludes self)
+        other_names = self.other_agent_names
         # Resolve effective theme — channel_theme from coordinator takes priority;
         # fall back to channel-name heuristic so e.g. a channel named "ai-memes" still works.
         effective_theme = channel_theme
@@ -1198,19 +1257,6 @@ class BaseAgentCog(commands.Cog):
             logger.exception("Failed to send image")
             return None
 
-    async def _generate_and_send_image(
-        self, channel: discord.abc.Messageable, prompt: str
-    ) -> discord.Message | None:
-        """Generate an image and send it to the channel."""
-        try:
-            image_bytes = await self._generate_image_bytes(prompt)
-            if not image_bytes:
-                return None
-            return await self._send_image(channel, image_bytes)
-        except Exception:
-            logger.exception("Failed to generate/send image")
-            return None
-
     async def _add_reaction(
         self, channel: discord.abc.Messageable, message_id: int, emoji: str
     ) -> bool:
@@ -1336,11 +1382,11 @@ class BaseAgentCog(commands.Cog):
                 pipe.hincrby(key, "web_search_calls", web_search_calls)
             if maps_grounding_calls:
                 pipe.hincrby(key, "maps_grounding_calls", maps_grounding_calls)
-            pipe.expire(key, 2592000)  # 30-day TTL
+            pipe.expire(key, _COST_KEY_TTL_SECONDS)
             results = await pipe.execute()
             return float(results[0])  # new total_cost after increment
         except Exception:
-            logger.debug("Failed to accumulate cost in Redis")
+            logger.warning("Failed to accumulate cost in Redis")
             return 0.0
 
     async def _increment_emoji_count(self) -> None:
@@ -1350,9 +1396,12 @@ class BaseAgentCog(commands.Cog):
         today = time.strftime("%Y-%m-%d")
         key = f"agent:{self.agent_redis_name}:cost:{today}"
         try:
-            await self._redis.hincrby(key, "emoji_reactions", 1)
+            pipe = self._redis.pipeline()
+            pipe.hincrby(key, "emoji_reactions", 1)
+            pipe.expire(key, _COST_KEY_TTL_SECONDS)
+            await pipe.execute()
         except Exception:
-            logger.debug("Failed to increment emoji count in Redis")
+            logger.warning("Failed to increment emoji count in Redis")
 
     # ------------------------------------------------------------------
     # Rate limiting

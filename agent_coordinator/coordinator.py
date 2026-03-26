@@ -24,9 +24,10 @@ _BOT_READY_TIMEOUT = 60  # max seconds to wait for all bots
 async def _wait_for_bots_ready(redis_client, timeout: float = _BOT_READY_TIMEOUT) -> None:
     """Poll Redis until every agent has set its ready key, or timeout."""
     ready_keys = [f"agent:{name}:ready" for name in AGENT_NAMES]
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
+    missing: list[str] = list(AGENT_NAMES)
 
-    while asyncio.get_event_loop().time() < deadline:
+    while asyncio.get_running_loop().time() < deadline:
         results = await asyncio.gather(*(redis_client.exists(k) for k in ready_keys))
         missing = [AGENT_NAMES[i] for i, v in enumerate(results) if not v]
         if not missing:

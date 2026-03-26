@@ -23,8 +23,8 @@ run_all.py
 | `agent_cogs/{openai,anthropic,gemini,grok}_agent.py` | Provider-specific subclasses |
 | `agent_coordinator/engine.py` | Conversation state machine + Redis pub/sub |
 | `agent_coordinator/scheduler.py` | Daily random scheduling (pure asyncio) |
-| `agent_coordinator/config.py` | Scheduling params, themes, probabilities |
-| `agent_config.py` | Shared runtime config loaded from `.env` |
+| `agent_coordinator/config.py` | Scheduling params, probabilities (imports themes/channels from `agent_config`) |
+| `agent_config.py` | Shared runtime config loaded from `.env` (single source of truth for `CHANNEL_THEMES`, `AGENT_CHANNEL_IDS`, `REDIS_URL`) |
 | `run_all.py` | Launches all 4 bots + coordinator in a single process |
 | `run_bot.py` | Single-bot launcher (`AGENT_NAME=chatgpt python run_bot.py`) |
 | `dashboard.py` | Cost monitoring web dashboard (aiohttp + Chart.js, reads Redis) |
@@ -147,7 +147,8 @@ CI (`Docker CI` workflow) runs tests and builds Docker images on every push/PR t
 
 ## Conventions
 
-- New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image(prompt)`; set `ai_model` and `image_model` class attributes for cost tracking
+- New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image_bytes(prompt)`; set `agent_redis_name`, `ai_model`, and `image_model` class attributes. `agent_redis_name` **must** be overridden (enforced by `__init_subclass__`)
+- Shared helpers in `base.py`: `_extract_responses_api_usage(response)` for OpenAI/Grok token extraction, `_download_image_bytes(session, url)` for image downloading — use these instead of duplicating logic in subclasses
 - `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI/Grok, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (OpenAI/Grok, $0.01/call), `maps_grounding_calls` (Gemini, $0.025/call) — set these in `_call_ai()` for accurate cost tracking; OpenAI/Grok include reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
 - Grok agent uses `AsyncOpenAI` pointed at `https://api.x.ai/v1` (Responses API); includes `prompt_cache_key` (per-instance UUID for server-sticky routing), `prompt_cache_retention="24h"`, and `context_management` compaction; tools: `web_search` + `x_search`
 - Anthropic agent uses `web_fetch_20260309` tool (max 5 uses, caching disabled), adaptive thinking (`{"type": "adaptive"}`), and medium effort (`output_config={"effort": "medium"}`); do not mix `adaptive` + `budget_tokens` (causes 400)
@@ -155,16 +156,23 @@ CI (`Docker CI` workflow) runs tests and builds Docker images on every push/PR t
 - `format_api_error()` in `base.py` extracts structured error info from any provider's exceptions
 - `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads — use it instead of creating per-request sessions
 - All Redis keys follow `agent:{name}:*` namespace
-- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, maps_grounding_calls, emoji_reactions) with 30-day TTL
+- Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, maps_grounding_calls, emoji_reactions) with 30-day TTL (`_COST_KEY_TTL_SECONDS` constant in `base.py`)
 - `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
-- Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
+- Daily channel queue: `coordinator:channel_queue:{date}` (`DAILY_KEY_TTL_SECONDS` in config; each channel fires once before repeats, then random fallback)
+- Redis protocol messages have `TypedDict` definitions in `engine.py` (`HistoryEntry`, `AgentResult`) for static type checking
 - Discord context includes relative timestamps ("3h ago") and filters system messages via `msg.is_system()`
 - Round 1 channel backdrop: agents see recent Discord messages (theme-scaled via `get_context_window`) before coordinator conversation begins
 - Coordinator history merges emoji reactions inline with attribution (e.g., `[msg:123] claude: Hot take  [reactions: 🔥 (grok) 💯 (gemini)]`)
 - Images in coordinator history appear as `[posted image: "prompt" → URL]` text entries
-- Protocol version is checked on every message; unknown versions are dropped with a warning
+- Protocol version is checked on every message; unknown versions are dropped with a warning (agents return early, coordinator ignores)
+- PubSub listeners use `try/finally: await pubsub.aclose()` to prevent connection leaks on reconnect
+- Scheduler uses Eastern time (`America/New_York` via `zoneinfo`) for all scheduling decisions
+- Scheduler accesses Redis via `engine.get_redis()` (not `engine._redis` directly)
+- `consecutive_end_requests` lives on `ConversationState` (persists across round boundaries)
+- Coordinator caps conversation history sent to agents at `MAX_ROUNDS * len(AGENT_NAMES)` entries
+- Dashboard imports `AGENT_DISPLAY_NAMES` and `AGENT_COLORS` from `base.py` — do not hardcode agent lists in `dashboard.py`
 - Prompt harness: `DECISION_SYSTEM_PROMPT` template + per-theme `CHANNEL_RULES` dict in `base.py` shape all AI decisions; `AGENT_DISPLAY_NAMES` is the single source of truth for bot names
 - `run_all.py` isolates bot failures with `return_exceptions=True` and exponential-backoff retries (up to 10 attempts)
 - `pytest~=9.0.2` is in `requirements.txt`; no separate `requirements-dev.txt`

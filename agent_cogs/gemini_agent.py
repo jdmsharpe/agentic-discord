@@ -10,7 +10,7 @@ from google import genai
 from google.genai import types
 
 from agent_config import GEMINI_API_KEY
-from .base import AIResponse, BaseAgentCog
+from .base import AIResponse, BaseAgentCog, _download_image_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -70,15 +70,10 @@ class GeminiAgentCog(BaseAgentCog):
         if image_urls:
             session = await self.get_http_session()
             for url in image_urls:
-                try:
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
-                            ct = resp.content_type or "image/png"
-                            mime = ct.split(";")[0]
-                            parts.append({"inline_data": {"mime_type": mime, "data": data}})
-                except Exception:
-                    logger.warning("Failed to download image for Gemini: %s", url)
+                result = await _download_image_bytes(session, url)
+                if result:
+                    data, mime = result
+                    parts.append({"inline_data": {"mime_type": mime, "data": data}})
         response = await self._client.aio.models.generate_content(
             model=self.ai_model,
             contents=[{"role": "user", "parts": parts}],

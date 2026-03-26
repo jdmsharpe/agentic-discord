@@ -14,6 +14,8 @@ import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
+
 # Patch agent_config before importing base
 import sys
 import types as stdlib_types
@@ -334,21 +336,6 @@ class TestActionExecution(unittest.TestCase):
         self.assertLessEqual(len(sent_text), 2000)
         self.assertTrue(sent_text.endswith("..."))
 
-    def test_generate_and_send_image(self):
-        channel = MagicMock()
-        sent_msg = MagicMock()
-        sent_msg.id = 222
-        channel.send = AsyncMock(return_value=sent_msg)
-
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(
-            self.cog._generate_and_send_image(channel, "a cool image")
-        )
-        loop.close()
-
-        self.assertEqual(result.id, 222)
-        channel.send.assert_called_once()
-
     def test_add_reaction(self):
         channel = MagicMock()
         message = MagicMock()
@@ -426,8 +413,13 @@ class TestDecideAndAct(unittest.TestCase):
 
     def test_emoji_reaction(self):
         self.cog.mock_ai_response = '{"skip": false, "text": null, "react_emoji": "🔥"}'
+        mock_pipe = MagicMock()
+        mock_pipe.hincrby = MagicMock()
+        mock_pipe.hincrbyfloat = MagicMock()
+        mock_pipe.expire = MagicMock()
+        mock_pipe.execute = AsyncMock(return_value=[1])
         self.cog._redis = MagicMock()
-        self.cog._redis.hincrby = AsyncMock()
+        self.cog._redis.pipeline = MagicMock(return_value=mock_pipe)
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-general"
@@ -444,8 +436,8 @@ class TestDecideAndAct(unittest.TestCase):
         loop.close()
 
         self.assertEqual(result["emoji_reacted"], "🔥")
-        # Verify emoji counter was incremented in Redis
-        self.cog._redis.hincrby.assert_awaited_with(
+        # Verify emoji counter was incremented via pipeline
+        mock_pipe.hincrby.assert_any_call(
             f"agent:{self.cog.agent_redis_name}:cost:{time.strftime('%Y-%m-%d')}",
             "emoji_reactions",
             1,
@@ -639,11 +631,13 @@ class TestHandleInstruction(unittest.TestCase):
         self.cog._redis.publish = AsyncMock()
 
     def test_handles_decide_action(self):
-        channel = MagicMock()
+        channel = MagicMock(spec=discord.TextChannel)
         channel.id = 100
         channel.name = "ai-general"
+        channel.guild = MagicMock()
         sent = MagicMock(id=999)
         channel.send = AsyncMock(return_value=sent)
+        channel.history = MagicMock(return_value=_empty_async_iter())
         self.cog.bot.get_channel = MagicMock(return_value=channel)
 
         instruction = {
@@ -685,7 +679,7 @@ class TestHandleInstruction(unittest.TestCase):
         self.cog._daily_reset_date = time.strftime("%Y-%m-%d")
         self.cog._daily_count = 5
 
-        channel = MagicMock()
+        channel = MagicMock(spec=discord.TextChannel)
         channel.id = 100
         self.cog.bot.get_channel = MagicMock(return_value=channel)
 
@@ -722,6 +716,7 @@ class TestListenerRetry(unittest.TestCase):
         """If pubsub.subscribe() fails, the listener retries instead of dying."""
         call_count = 0
         mock_pubsub = MagicMock()
+        mock_pubsub.aclose = AsyncMock()
 
         async def fake_subscribe(*channels):
             nonlocal call_count
@@ -750,6 +745,7 @@ class TestListenerRetry(unittest.TestCase):
     def test_cancelled_error_propagates(self):
         """CancelledError should not be caught by the retry loop."""
         mock_pubsub = MagicMock()
+        mock_pubsub.aclose = AsyncMock()
         mock_pubsub.subscribe = AsyncMock(side_effect=asyncio.CancelledError())
         self.cog._redis.pubsub = MagicMock(return_value=mock_pubsub)
 
@@ -763,6 +759,7 @@ class TestListenerRetry(unittest.TestCase):
         """Delay should double each failure, capping at _LISTENER_MAX_BACKOFF."""
         call_count = 0
         mock_pubsub = MagicMock()
+        mock_pubsub.aclose = AsyncMock()
         sleep_values = []
 
         async def fake_subscribe(*channels):

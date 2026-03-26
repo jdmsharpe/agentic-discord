@@ -54,6 +54,7 @@ async def start_agent(name: str, token: str, module_path: str, class_name: str):
 
             @bot.event
             async def on_ready(n=name):
+                assert bot.user is not None
                 _log(n, "Online as %s (ID: %s)", bot.user, bot.user.id)
 
             bot.add_cog(CogClass(bot=bot))
