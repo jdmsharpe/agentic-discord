@@ -12,8 +12,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from agent_config import get_context_window
-
 from .config import (
     AGENT_CHANNEL_IDS,
     AGENT_NAMES,
@@ -313,7 +311,7 @@ class ConversationEngine:
             "topic": state.topic,
             "round_number": state.round_number,
             "conversation_id": state.conversation_id,
-            "conversation_history": state.conversation_history[-get_context_window(state.channel_theme):],
+            "conversation_history": state.conversation_history,
             "is_conversation_starter": is_starter,
         }
 

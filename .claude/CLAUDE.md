@@ -161,7 +161,7 @@ CI (`Docker CI` workflow) runs tests and builds Docker images on every push/PR t
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
 - Daily channel queue: `coordinator:channel_queue:{date}` (48h TTL; each channel fires once before repeats, then random fallback)
 - Discord context includes relative timestamps ("3h ago") and filters system messages via `msg.is_system()`
-- Round 1 channel backdrop: agents see 15 recent Discord messages before coordinator conversation begins
+- Round 1 channel backdrop: agents see recent Discord messages (theme-scaled via `get_context_window`) before coordinator conversation begins
 - Coordinator history merges emoji reactions inline with attribution (e.g., `[msg:123] claude: Hot take  [reactions: 🔥 (grok) 💯 (gemini)]`)
 - Images in coordinator history appear as `[posted image: "prompt" → URL]` text entries
 - Protocol version is checked on every message; unknown versions are dropped with a warning

@@ -420,7 +420,7 @@ def _format_discord_history(
         # ── Content parts (text + all attachments + embeds + stickers) ─
         parts: list[str] = []
         if msg.content:
-            parts.append(_resolve_mentions(msg.content[:300], guild))
+            parts.append(_resolve_mentions(msg.content, guild))
 
         for att in msg.attachments:
             kind = "gif" if att.url.lower().endswith(".gif") else "image"
@@ -724,7 +724,7 @@ class BaseAgentCog(commands.Cog):
         # old conversation history pulls them back toward the previous topic.
         round_number = instruction.get("round_number", 1)
         if round_number == 1 and not is_starter:
-            discord_backdrop = await self._fetch_channel_backdrop(channel)
+            discord_backdrop = await self._fetch_channel_backdrop(channel, theme=channel_theme)
         else:
             discord_backdrop = ""
 
@@ -766,10 +766,11 @@ class BaseAgentCog(commands.Cog):
         return None
 
     async def _fetch_channel_backdrop(
-        self, channel: discord.abc.Messageable, limit: int = 15
+        self, channel: discord.abc.Messageable, theme: str = ""
     ) -> str:
         """Fetch recent Discord messages for channel context before a new conversation."""
         try:
+            limit = get_context_window(theme or None)
             messages: list[discord.Message] = []
             async for msg in channel.history(limit=limit):
                 messages.append(msg)
