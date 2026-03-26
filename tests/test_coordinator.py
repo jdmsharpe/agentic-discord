@@ -29,6 +29,7 @@ fake_config.MIN_RESPONDENTS_TO_CONTINUE = 2
 fake_config.REACTIVE_TRIGGER_PROBABILITY = 0.15
 fake_config.REACTIVE_COOLDOWN_SECONDS = 300.0
 fake_config.CONSECUTIVE_TIMEOUT_THRESHOLD = 3  # Low threshold for testing
+fake_config.PRIORITY_CHANNEL_IDS = [100]
 fake_config.FIRE_ON_STARTUP = False
 fake_config.TURN_DELAY_MIN = 0.0
 fake_config.TURN_DELAY_MAX = 0.0
