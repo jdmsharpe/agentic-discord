@@ -62,6 +62,7 @@ def main():
 
     @bot.event
     async def on_ready():
+        assert bot.user is not None
         logger.info(
             "Agent '%s' online as %s (ID: %s)", AGENT_NAME, bot.user, bot.user.id
         )

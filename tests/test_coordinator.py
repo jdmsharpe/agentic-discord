@@ -33,6 +33,7 @@ fake_config.PRIORITY_CHANNEL_IDS = [100]
 fake_config.FIRE_ON_STARTUP = False
 fake_config.TURN_DELAY_MIN = 0.0
 fake_config.TURN_DELAY_MAX = 0.0
+fake_config.DAILY_KEY_TTL_SECONDS = 172_800
 sys.modules["agent_coordinator.config"] = fake_config
 
 # engine.py imports get_context_window from agent_config
@@ -72,7 +73,8 @@ class TestScheduler(unittest.TestCase):
 
     def test_generate_todays_times_filters_past(self):
         times = self.scheduler._generate_todays_times()
-        now = datetime.datetime.now()
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime.now(ZoneInfo("America/New_York"))
         for t in times:
             self.assertGreater(t, now)
 
@@ -580,6 +582,7 @@ class TestRedisResilience(unittest.TestCase):
         call_count = 0
 
         mock_pubsub = MagicMock()
+        mock_pubsub.aclose = AsyncMock()
 
         async def fake_subscribe(*channels):
             nonlocal call_count
@@ -612,6 +615,7 @@ class TestRedisResilience(unittest.TestCase):
         """After a reconnect, the listener still correctly routes results."""
         call_count = 0
         mock_pubsub = MagicMock()
+        mock_pubsub.aclose = AsyncMock()
 
         async def fake_subscribe(*channels):
             nonlocal call_count
@@ -743,7 +747,9 @@ class TestSchedulePersistence(unittest.TestCase):
         asyncio.run(run())
 
     def test_loads_existing_schedule_from_redis(self):
-        now = datetime.datetime.now()
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/New_York")
+        now = datetime.datetime.now(tz)
         future_time = now + datetime.timedelta(hours=2)
         stored = json.dumps([future_time.isoformat()])
 
@@ -757,7 +763,9 @@ class TestSchedulePersistence(unittest.TestCase):
         asyncio.run(run())
 
     def test_filters_past_times_from_redis_schedule(self):
-        now = datetime.datetime.now()
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/New_York")
+        now = datetime.datetime.now(tz)
         past_time = now - datetime.timedelta(hours=1)
         future_time = now + datetime.timedelta(hours=2)
         stored = json.dumps([past_time.isoformat(), future_time.isoformat()])
@@ -770,7 +778,9 @@ class TestSchedulePersistence(unittest.TestCase):
         asyncio.run(run())
 
     def test_regenerates_when_all_redis_times_past(self):
-        now = datetime.datetime.now()
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("America/New_York")
+        now = datetime.datetime.now(tz)
         past_time = now - datetime.timedelta(hours=1)
         stored = json.dumps([past_time.isoformat()])
 

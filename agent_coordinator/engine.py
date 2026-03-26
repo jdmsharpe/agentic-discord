@@ -11,14 +11,17 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import TypedDict
 
 from .config import (
     AGENT_CHANNEL_IDS,
     AGENT_NAMES,
     AGENT_RESPONSE_TIMEOUT,
+    CHANNEL_THEMES,
     CONSECUTIVE_TIMEOUT_THRESHOLD,
     CONTINUATION_BASE_PROBABILITY,
     CONTINUATION_DECAY,
+    DAILY_KEY_TTL_SECONDS,
     MAX_ROUNDS,
     MIN_RESPONDENTS_TO_CONTINUE,
     PRIORITY_CHANNEL_IDS,
@@ -31,6 +34,30 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 
+class HistoryEntry(TypedDict, total=False):
+    """A single entry in the conversation history."""
+    agent: str
+    text: str
+    message_id: int | None
+
+
+class AgentResult(TypedDict, total=False):
+    """Result dict returned by an agent via Redis."""
+    protocol_version: int
+    instruction_id: str
+    agent_name: str
+    skipped: bool
+    text: str | None
+    image_url: str | None
+    image_prompt: str | None
+    emoji_reacted: str | None
+    react_to_message_id: int | None
+    end_conversation: bool
+    topic: str | None
+    reason: str
+    error: str
+
+
 @dataclass
 class ConversationState:
     """Tracks all state for a single conversation."""
@@ -40,9 +67,10 @@ class ConversationState:
     channel_theme: str = "casual"
     topic: str = ""
     round_number: int = 0
-    conversation_history: list[dict] = field(default_factory=list)
+    conversation_history: list[HistoryEntry] = field(default_factory=list)
     text_responses_this_round: int = 0
     total_skips_this_round: int = 0
+    consecutive_end_requests: int = 0
     ended_naturally: bool = False
 
 
@@ -58,6 +86,10 @@ class ConversationEngine:
         self._consecutive_timeouts: int = 0
 
     _LISTENER_MAX_BACKOFF = 30  # seconds
+
+    def get_redis(self):
+        """Public accessor for the Redis client — use instead of accessing _redis directly."""
+        return self._redis
 
     async def start(self) -> None:
         await self._wait_for_redis()
@@ -98,8 +130,8 @@ class ConversationEngine:
         delay = 1
 
         while True:
+            pubsub = self._redis.pubsub()
             try:
-                pubsub = self._redis.pubsub()
                 await pubsub.subscribe(*channels)
                 logger.info("Listening on result channels: %s", channels)
                 delay = 1  # reset backoff on successful subscribe
@@ -128,6 +160,8 @@ class ConversationEngine:
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._LISTENER_MAX_BACKOFF)
+            finally:
+                await pubsub.aclose()
 
     # ------------------------------------------------------------------
     # Starter rotation (Redis-backed, survives restarts)
@@ -170,7 +204,7 @@ class ConversationEngine:
             ordered = random.sample(valid_priority, len(valid_priority)) + \
                       random.sample(non_priority, len(non_priority))
             await self._redis.rpush(key, *[str(c) for c in ordered])
-            await self._redis.expire(key, 172800)  # 48h TTL — auto-cleanup
+            await self._redis.expire(key, DAILY_KEY_TTL_SECONDS)
             logger.info("Daily channel queue created for %s: %s", today, ordered)
 
         channel_id = await self._redis.lpop(key)
@@ -236,7 +270,6 @@ class ConversationEngine:
 
         state.text_responses_this_round = 0
         state.total_skips_this_round = 0
-        consecutive_end_requests = 0
 
         is_first_round = state.round_number == 1
 
@@ -282,8 +315,8 @@ class ConversationEngine:
 
                 # Track consecutive end_conversation requests (skips don't affect counter)
                 if result.get("end_conversation"):
-                    consecutive_end_requests += 1
-                    if consecutive_end_requests >= 2:
+                    state.consecutive_end_requests += 1
+                    if state.consecutive_end_requests >= 2:
                         state.ended_naturally = True
                         logger.info(
                             "Conversation %s ending naturally — 2 consecutive end requests in round %d",
@@ -292,7 +325,7 @@ class ConversationEngine:
                         )
                         break
                 else:
-                    consecutive_end_requests = 0
+                    state.consecutive_end_requests = 0
 
             # Natural pacing between turns
             await asyncio.sleep(random.uniform(TURN_DELAY_MIN, TURN_DELAY_MAX))
@@ -311,7 +344,7 @@ class ConversationEngine:
             "topic": state.topic,
             "round_number": state.round_number,
             "conversation_id": state.conversation_id,
-            "conversation_history": state.conversation_history,
+            "conversation_history": state.conversation_history[-MAX_ROUNDS * len(AGENT_NAMES):],
             "is_conversation_starter": is_starter,
         }
 
@@ -350,7 +383,7 @@ class ConversationEngine:
                     "Hit %d consecutive timeouts — exiting for systemd restart",
                     self._consecutive_timeouts,
                 )
-                asyncio.get_event_loop().call_soon(
+                asyncio.get_running_loop().call_soon(
                     lambda: sys.exit(1)
                 )
             return {"skipped": True, "reason": "timeout", "agent_name": agent_name}
@@ -419,7 +452,8 @@ class ConversationEngine:
             reactive_agents,
         )
 
-        state = ConversationState(channel_id=channel_id, channel_theme="casual")
+        theme = CHANNEL_THEMES.get(channel_id, "casual")
+        state = ConversationState(channel_id=channel_id, channel_theme=theme)
         state.round_number = 1
         self._active_conversations[channel_id] = state
 

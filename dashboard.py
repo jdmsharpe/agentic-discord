@@ -8,19 +8,15 @@ a live Chart.js dashboard (auto-refreshes every 30 s).
 """
 
 import argparse
-import os
 from datetime import date, timedelta
 
 from aiohttp import web
 import redis.asyncio as aioredis
 
-AGENTS = ["chatgpt", "claude", "gemini", "grok"]
-AGENT_COLORS = {
-    "chatgpt": "#10a37f",
-    "claude": "#d4a27f",
-    "gemini": "#4285f4",
-    "grok": "#e7212e",
-}
+from agent_cogs.base import AGENT_DISPLAY_NAMES, AGENT_COLORS as _AGENT_COLORS_INT
+
+AGENTS = list(AGENT_DISPLAY_NAMES.keys())
+AGENT_COLORS = {name: f"#{color:06x}" for name, color in _AGENT_COLORS_INT.items()}
 
 # ---------------------------------------------------------------------------
 # Data layer
@@ -31,6 +27,7 @@ async def get_cost_data(r: aioredis.Redis, days: int = 30) -> dict:
     dates = [
         (today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)
     ]
+    float_fields = {"total_cost", "ai_cost", "image_cost"}
     data: dict[str, dict] = {}
     for d in dates:
         data[d] = {}
@@ -38,13 +35,13 @@ async def get_cost_data(r: aioredis.Redis, days: int = 30) -> dict:
             key = f"agent:{agent}:cost:{d}"
             raw = await r.hgetall(key)
             if raw:
-                float_fields = {"total_cost", "ai_cost", "image_cost"}
-                data[d][agent] = {
-                    k.decode(): (
-                        float(v) if k.decode() in float_fields else int(v)
-                    )
-                    for k, v in raw.items()
-                }
+                parsed = {}
+                for k, v in raw.items():
+                    try:
+                        parsed[k] = float(v) if k in float_fields else int(float(v))
+                    except (ValueError, TypeError):
+                        parsed[k] = 0
+                data[d][agent] = parsed
     return {"dates": dates, "agents": AGENTS, "colors": AGENT_COLORS, "data": data}
 
 
@@ -68,8 +65,9 @@ async def handle_index(_: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 async def on_startup(app: web.Application) -> None:
-    redis_url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
-    app["redis"] = aioredis.from_url(redis_url, decode_responses=False)
+    from agent_config import REDIS_URL as _redis_url
+    redis_url = _redis_url or "redis://127.0.0.1:6379"
+    app["redis"] = aioredis.from_url(redis_url, decode_responses=True)
 
 
 async def on_cleanup(app: web.Application) -> None:

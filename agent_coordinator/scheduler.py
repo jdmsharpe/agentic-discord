@@ -7,10 +7,12 @@ import datetime
 import json
 import logging
 import random
+from zoneinfo import ZoneInfo
 
 from .config import (
     AGENT_CHANNEL_IDS,
     CHANNEL_THEMES,
+    DAILY_KEY_TTL_SECONDS,
     SCHEDULE_ACTIVE_END_HOUR,
     SCHEDULE_ACTIVE_START_HOUR,
     SCHEDULE_MAX_EVENTS,
@@ -21,6 +23,7 @@ from .engine import ConversationEngine
 logger = logging.getLogger(__name__)
 
 _SCHEDULE_KEY_PREFIX = "coordinator:schedule"
+_TZ = ZoneInfo("America/New_York")
 
 
 class DailyScheduler:
@@ -52,6 +55,9 @@ class DailyScheduler:
                     [t.strftime("%H:%M") for t in times],
                 )
 
+                if not times:
+                    logger.info("No remaining conversation times today — sleeping until midnight")
+
                 for scheduled_time in times:
                     await self._sleep_until(scheduled_time)
                     await self._fire_conversation()
@@ -65,7 +71,7 @@ class DailyScheduler:
 
     def _generate_todays_times(self) -> list[datetime.datetime]:
         """Generate N random times spread across active hours via slot-based spread."""
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(_TZ)
         count = random.randint(SCHEDULE_MIN_EVENTS, SCHEDULE_MAX_EVENTS)
 
         start_minutes = SCHEDULE_ACTIVE_START_HOUR * 60
@@ -97,11 +103,11 @@ class DailyScheduler:
 
     async def _load_or_create_schedule(self) -> list[datetime.datetime]:
         """Load today's schedule from Redis, or generate and persist a new one."""
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now(_TZ).date().isoformat()
         key = f"{_SCHEDULE_KEY_PREFIX}:{today}"
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(_TZ)
 
-        raw = await self._engine._redis.get(key)
+        raw = await self._engine.get_redis().get(key)
         if raw:
             try:
                 stored = json.loads(raw)
@@ -119,22 +125,22 @@ class DailyScheduler:
 
         times = self._generate_todays_times()
         if times:
-            await self._engine._redis.set(
+            await self._engine.get_redis().set(
                 key,
                 json.dumps([t.isoformat() for t in times]),
-                ex=172800,  # 48h TTL
+                ex=DAILY_KEY_TTL_SECONDS,
             )
         return times
 
     async def _sleep_until(self, target: datetime.datetime) -> None:
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(_TZ)
         delta = (target - now).total_seconds()
         if delta > 0:
             logger.debug("Sleeping %.0fs until %s", delta, target.strftime("%H:%M:%S"))
             await asyncio.sleep(delta)
 
     async def _sleep_until_midnight(self) -> None:
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(_TZ)
         tomorrow = (now + datetime.timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )

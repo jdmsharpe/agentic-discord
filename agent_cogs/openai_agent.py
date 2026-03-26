@@ -9,7 +9,7 @@ import discord
 from openai import AsyncOpenAI
 
 from agent_config import OPENAI_API_KEY
-from .base import AIResponse, BaseAgentCog
+from .base import AIResponse, BaseAgentCog, _extract_responses_api_usage
 
 logger = logging.getLogger(__name__)
 
@@ -50,28 +50,8 @@ class OpenAIAgentCog(BaseAgentCog):
             context_management=[{"type": "compaction", "compact_threshold": 200_000}],
             prompt_cache_retention="24h",
         )
-        input_tokens = 0
-        output_tokens = 0
-        cached_input_tokens = 0
-        reasoning_tokens = 0
-        if hasattr(response, "usage") and response.usage:
-            usage = response.usage
-            input_tokens = getattr(usage, "input_tokens", 0) or 0
-            output_tokens = getattr(usage, "output_tokens", 0) or 0
-            # OpenAI nests cache/reasoning details in sub-objects
-            input_details = getattr(usage, "input_tokens_details", None)
-            if input_details:
-                cached_input_tokens = getattr(input_details, "cached_tokens", 0) or 0
-            output_details = getattr(usage, "output_tokens_details", None)
-            if output_details:
-                reasoning_tokens = getattr(output_details, "reasoning_tokens", 0) or 0
-            # OpenAI includes reasoning in output_tokens — subtract so the
-            # cost formula (output + reasoning) * price doesn't double-count
-            output_tokens = max(output_tokens - reasoning_tokens, 0)
-        # Count web_search_call items in output — each is a separate billable tool invocation
-        web_search_calls = sum(
-            1 for item in (response.output or [])
-            if getattr(item, "type", "") == "web_search_call"
+        input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, web_search_calls = (
+            _extract_responses_api_usage(response)
         )
         if web_search_calls:
             logger.info("[chatgpt] web_search called %d time(s) this turn", web_search_calls)
@@ -85,20 +65,24 @@ class OpenAIAgentCog(BaseAgentCog):
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
-        response = await self._client.images.generate(
-            model=self.image_model,
-            prompt=prompt,
-            n=1,
-            size="1024x1024",
-            quality="medium",
-        )
-        # gpt-image models return base64
-        for item in response.data:
-            if hasattr(item, "b64_json") and item.b64_json:
-                return base64.b64decode(item.b64_json)
-            if hasattr(item, "url") and item.url:
-                session = await self.get_http_session()
-                async with session.get(item.url) as resp:
-                    if resp.status == 200:
-                        return await resp.read()
+        try:
+            response = await self._client.images.generate(
+                model=self.image_model,
+                prompt=prompt,
+                n=1,
+                size="1024x1024",
+                quality="medium",
+            )
+            # gpt-image models return base64
+            if response.data:
+                for item in response.data:
+                    if hasattr(item, "b64_json") and item.b64_json:
+                        return base64.b64decode(item.b64_json)
+                    if hasattr(item, "url") and item.url:
+                        session = await self.get_http_session()
+                        async with session.get(item.url) as resp:
+                            if resp.status == 200:
+                                return await resp.read()
+        except Exception:
+            logger.exception("OpenAI image generation failed")
         return None

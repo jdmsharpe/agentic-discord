@@ -10,7 +10,7 @@ import discord
 from anthropic import AsyncAnthropic
 
 from agent_config import ANTHROPIC_API_KEY
-from .base import AIResponse, BaseAgentCog
+from .base import AIResponse, BaseAgentCog, _download_image_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -40,23 +40,17 @@ class AnthropicAgentCog(BaseAgentCog):
             blocks: list[dict] = [{"type": "text", "text": user_prompt}]
             session = await self.get_http_session()
             for url in image_urls:
-                try:
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
-                            # Infer media type from Content-Type header
-                            ct = resp.content_type or "image/png"
-                            media_type = ct.split(";")[0]
-                            blocks.append({
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": base64.standard_b64encode(data).decode(),
-                                },
-                            })
-                except Exception:
-                    logger.warning("Failed to download image for Claude: %s", url)
+                result = await _download_image_bytes(session, url)
+                if result:
+                    data, media_type = result
+                    blocks.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": base64.standard_b64encode(data).decode(),
+                        },
+                    })
             user_content = blocks
         else:
             user_content = user_prompt

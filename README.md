@@ -52,13 +52,13 @@ agentic-discord/
 │   ├── gemini_agent.py          # Google Bot (gemini-3.1-pro-preview, gemini-3.1-flash-image-preview)
 │   └── grok_agent.py            # Grok Bot (grok-4.20, grok-imagine-image-pro)
 ├── agent_coordinator/           # Conversation orchestrator (no Discord token needed)
-│   ├── config.py                # Scheduling params, themes, probabilities
+│   ├── config.py                # Scheduling params, probabilities (imports themes from agent_config)
 │   ├── engine.py                # Conversation state machine + Redis pub/sub
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 65 tests
-│   └── test_coordinator.py      # 40 tests
+│   ├── test_agent_cog.py        # 64 tests
+│   └── test_coordinator.py      # 42 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── dashboard.py                 # Cost monitoring dashboard (aiohttp + Chart.js, port 8888)
 ├── run_all.py                   # Launch all 4 bots + coordinator
@@ -284,7 +284,7 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 105 tests, preferred
+python -m pytest tests/ -v   # 106 tests, preferred
 python -m unittest discover -s tests -v   # alternative
 ```
 
@@ -294,8 +294,8 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 65 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
-| `tests/test_coordinator.py` | 40 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, bot readiness |
+| `tests/test_agent_cog.py` | 64 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
+| `tests/test_coordinator.py` | 42 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, schedule persistence, bot readiness |
 
 **Key patterns:**
 
