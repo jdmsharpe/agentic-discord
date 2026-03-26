@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+from zoneinfo import ZoneInfo
 import json
 import logging
 import random
@@ -187,18 +188,17 @@ class ConversationEngine:
         Uses a date-keyed Redis list so the queue resets automatically each day.
         Once all channels have had their first conversation, falls back to random choice.
         """
-        today = datetime.date.today().isoformat()
+        today = datetime.datetime.now(ZoneInfo("America/New_York")).date().isoformat()
         key = f"coordinator:channel_queue:{today}"
-
-        # Warn about misconfigured priority channels (once per queue creation)
-        invalid = [c for c in PRIORITY_CHANNEL_IDS if c not in AGENT_CHANNEL_IDS]
-        if invalid:
-            logger.warning(
-                "Priority channels not in CHANNEL_THEME_MAP (ignored): %s", invalid
-            )
 
         # Seed the queue on first access today — priority channels first, then the rest
         if not await self._redis.exists(key):
+            # Warn about misconfigured priority channels (once per queue creation)
+            invalid = [c for c in PRIORITY_CHANNEL_IDS if c not in AGENT_CHANNEL_IDS]
+            if invalid:
+                logger.warning(
+                    "Priority channels not in CHANNEL_THEME_MAP (ignored): %s", invalid
+                )
             valid_priority = [c for c in PRIORITY_CHANNEL_IDS if c in AGENT_CHANNEL_IDS]
             non_priority = [c for c in AGENT_CHANNEL_IDS if c not in valid_priority]
             ordered = random.sample(valid_priority, len(valid_priority)) + \
