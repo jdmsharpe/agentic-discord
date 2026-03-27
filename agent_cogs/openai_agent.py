@@ -44,7 +44,7 @@ class OpenAIAgentCog(BaseAgentCog):
         response = await self._client.responses.create(
             model=self.ai_model,
             instructions=system_prompt,
-            input=ai_input,
+            input=ai_input,  # type: ignore[arg-type]
             tools=[
                 {"type": "web_search"},
             ],

@@ -40,7 +40,7 @@ def _filter_tools_for_model(model: str, tools: list[dict]) -> list[dict]:
     supported = []
     for tool in tools:
         tool_name = next(iter(tool), None)
-        compat_set = _TOOL_MODEL_COMPATIBILITY.get(tool_name)
+        compat_set = _TOOL_MODEL_COMPATIBILITY.get(tool_name or "")
         if compat_set is not None and model not in compat_set:
             logger.debug("Tool %s not supported on %s, skipping", tool_name, model)
             continue
@@ -107,8 +107,8 @@ class GeminiAgentCog(BaseAgentCog):
                 ),
             )
             # Gemini native image models return inline image data in parts
-            if response.candidates:
-                for part in response.candidates[0].content.parts:
+            if response.candidates and response.candidates[0].content:
+                for part in response.candidates[0].content.parts or []:
                     if part.inline_data and part.inline_data.data:
                         return part.inline_data.data
         except Exception:

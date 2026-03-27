@@ -50,11 +50,8 @@ class GrokAgentCog(BaseAgentCog):
         response = await self._client.responses.create(
             model=self.ai_model,
             instructions=system_prompt,
-            input=ai_input,
-            tools=[
-                {"type": "web_search"},
-                {"type": "x_search"},
-            ],
+            input=ai_input,  # type: ignore[arg-type]
+            tools=[{"type": "web_search"}, {"type": "x_search"}],  # type: ignore[arg-type]
             prompt_cache_key=self._cache_key,
             prompt_cache_retention="24h",
             context_management=[{"type": "compaction", "compact_threshold": 200_000}],

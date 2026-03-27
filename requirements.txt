@@ -16,4 +16,4 @@ urllib3~=2.6
 
 # Dev / testing
 pytest~=9.0
-ruff~=0.11
+ruff~=0.15
