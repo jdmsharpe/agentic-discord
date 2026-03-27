@@ -135,6 +135,17 @@ python dashboard.py                        # cost dashboard on :8080
 
 Docker is also supported via `Dockerfile` (production) and `Dockerfile.test` (CI).
 
+## Linting & Formatting
+
+```bash
+ruff check .            # lint (strict — must pass before commit)
+ruff check --fix .      # lint with auto-fix
+ruff format .           # auto-format
+```
+
+Config lives in `pyproject.toml` (rules: E/W/F/I/UP/B/SIM, py312, 100 col line length).
+A standalone pre-commit hook (`.git/hooks/pre-commit`) auto-formats staged `.py` files and blocks commits on lint failures. Skips gracefully if ruff isn't installed.
+
 ## Tests
 
 ```bash
