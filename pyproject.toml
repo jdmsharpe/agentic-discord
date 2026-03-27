@@ -18,3 +18,14 @@ ignore = [
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.pyright]
+include = ["agent_cogs", "agent_coordinator", "tests"]
+exclude = [".venv", "**/node_modules", "**/__pycache__", "**/.*"]
+extraPaths = ["."]
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]
+reportAttributeAccessIssue = false
+reportOptionalMemberAccess = false

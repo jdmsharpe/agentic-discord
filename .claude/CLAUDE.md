@@ -146,6 +146,8 @@ ruff format .           # auto-format
 Config lives in `pyproject.toml` (rules: E/W/F/I/UP/B/SIM, py312, 100 col line length).
 A standalone pre-commit hook (`.git/hooks/pre-commit`) auto-formats staged `.py` files and blocks commits on lint failures. Skips gracefully if ruff isn't installed.
 
+Pyright is configured in `pyproject.toml` for type checking (`agent_cogs/`, `agent_coordinator/`, `tests/`). Tests have relaxed rules for monkey-patching (`reportAttributeAccessIssue`, `reportOptionalMemberAccess` suppressed). SDK type mismatches use `# type: ignore[arg-type]` where dict literals don't match strict SDK `TypedDict` params.
+
 ## Tests
 
 ```bash

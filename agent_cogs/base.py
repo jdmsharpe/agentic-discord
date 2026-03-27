@@ -662,6 +662,7 @@ class BaseAgentCog(commands.Cog):
         delay = 1
 
         while True:
+            assert self._redis is not None
             pubsub = self._redis.pubsub()
             try:
                 await pubsub.subscribe(channel_name)
@@ -1070,6 +1071,7 @@ class BaseAgentCog(commands.Cog):
         if decision.get("generate_image") and decision.get("image_prompt"):
             img_prompt = decision["image_prompt"]
             try:
+                assert img_prompt is not None
                 image_bytes = await self._generate_image_bytes(img_prompt)
             except Exception:
                 logger.exception("Failed to generate image")
@@ -1129,7 +1131,8 @@ class BaseAgentCog(commands.Cog):
             if sent_msg:
                 result["text"] = text
                 result["message_id"] = sent_msg.id
-                self._record_response(channel.id if hasattr(channel, "id") else 0)
+                channel_id = getattr(channel, "id", 0)
+                self._record_response(channel_id)
 
         # Send image (with embed if text wasn't sent or text send failed)
         if image_bytes:
@@ -1141,7 +1144,8 @@ class BaseAgentCog(commands.Cog):
                 if img_msg.attachments:
                     result["image_url"] = img_msg.attachments[0].url
                 result.setdefault("message_id", img_msg.id)
-                self._record_response(channel.id if hasattr(channel, "id") else 0)
+                channel_id = getattr(channel, "id", 0)
+                self._record_response(channel_id)
 
         # Fallback: if embed was built but neither send succeeded, post standalone
         if embed and not sent_msg and not img_msg:
@@ -1207,7 +1211,7 @@ class BaseAgentCog(commands.Cog):
                         "Could not reply to message %s, sending normally",
                         reply_to_message_id,
                     )
-            return await channel.send(text, embed=embed)
+            return await channel.send(text, embed=embed)  # type: ignore[arg-type]
         except Exception:
             logger.exception("Failed to send text message")
             return None
@@ -1221,7 +1225,7 @@ class BaseAgentCog(commands.Cog):
         """Send pre-generated image bytes to the channel."""
         try:
             file = discord.File(BytesIO(image_bytes), filename="agent_image.png")
-            return await channel.send(file=file, embed=embed)
+            return await channel.send(file=file, embed=embed)  # type: ignore[arg-type]
         except Exception:
             logger.exception("Failed to send image")
             return None

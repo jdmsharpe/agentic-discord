@@ -60,7 +60,7 @@ class AnthropicAgentCog(BaseAgentCog):
             model=self.ai_model,
             max_tokens=16384,
             system=system_prompt,
-            messages=[{"role": "user", "content": user_content}],
+            messages=[{"role": "user", "content": user_content}],  # type: ignore[arg-type]
             tools=[
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
                 {
