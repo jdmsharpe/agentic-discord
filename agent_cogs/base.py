@@ -8,6 +8,7 @@ Subclasses override _call_ai() and _generate_image_bytes() for provider-specific
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import json
 import logging
@@ -15,7 +16,7 @@ import re
 import time
 from abc import abstractmethod
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
 
@@ -273,9 +274,7 @@ def _parse_decision(raw: str) -> dict[str, Any]:
                     return decision
             except json.JSONDecodeError:
                 pass
-        logger.warning(
-            "Failed to parse AI decision JSON, defaulting to skip: %s", text[:500]
-        )
+        logger.warning("Failed to parse AI decision JSON, defaulting to skip: %s", text[:500])
         return {"skip": True}
 
     if not isinstance(decision, dict):
@@ -285,9 +284,9 @@ def _parse_decision(raw: str) -> dict[str, Any]:
 
 def _relative_time(dt: datetime.datetime) -> str:
     """Return a human-friendly relative timestamp, e.g. '3h ago'."""
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
+        dt = dt.replace(tzinfo=datetime.UTC)
     seconds = int((now - dt).total_seconds())
     if seconds < 60:
         return "just now"
@@ -302,9 +301,7 @@ _NO_MESSAGES_SENTINEL = "(No messages yet — you're starting the conversation.)
 _COST_KEY_TTL_SECONDS = 2_592_000  # 30 days
 
 
-def _format_conversation_history(
-    messages: list[dict[str, Any]], theme: str | None = None
-) -> str:
+def _format_conversation_history(messages: list[dict[str, Any]], theme: str | None = None) -> str:
     """Format conversation history from coordinator into a readable string.
 
     Includes message IDs so the AI can target specific messages for replies/reactions.
@@ -313,15 +310,13 @@ def _format_conversation_history(
     if not messages:
         return _NO_MESSAGES_SENTINEL
 
-    windowed = messages[-get_context_window(theme):]
+    windowed = messages[-get_context_window(theme) :]
 
     def display_name(agent_name: str) -> str:
         return AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
 
     # First pass: collect reactions keyed by target message_id
-    reactions: dict[str, list[tuple[str, str]]] = defaultdict(
-        list
-    )  # {mid: [(emoji, agent)]}
+    reactions: dict[str, list[tuple[str, str]]] = defaultdict(list)  # {mid: [(emoji, agent)]}
     text_entries: list[tuple[str, str, str]] = []  # (mid, agent, text)
 
     for msg in windowed:
@@ -345,9 +340,7 @@ def _format_conversation_history(
     for mid, agent, text in text_entries:
         reaction_str = ""
         if mid and mid in reactions:
-            parts = [
-                f"{emoji} ({display_name(agent)})" for emoji, agent in reactions[mid]
-            ]
+            parts = [f"{emoji} ({display_name(agent)})" for emoji, agent in reactions[mid]]
             reaction_str = "  [reactions: " + " ".join(parts) + "]"
         lines.append(f"[msg:{mid}] {agent}: {text}{reaction_str}")
 
@@ -433,9 +426,7 @@ def _format_discord_history(
         if not msg.attachments and msg.embeds:
             embed = msg.embeds[0]
             url = (
-                embed.url
-                or (embed.image and embed.image.url)
-                or (embed.video and embed.video.url)
+                embed.url or (embed.image and embed.image.url) or (embed.video and embed.video.url)
             )
             parts.append(f"[gif: {url}]" if url else "(embed)")
 
@@ -447,9 +438,7 @@ def _format_discord_history(
         # ── Reactions ──────────────────────────────────────────────────
         reaction_str = ""
         if msg.reactions:
-            reaction_str = "  " + " ".join(
-                f"{r.emoji}×{r.count}" for r in msg.reactions
-            )
+            reaction_str = "  " + " ".join(f"{r.emoji}×{r.count}" for r in msg.reactions)
 
         lines.append(
             f"[msg:{msg.id}] {_relative_time(msg.created_at)} {name}{reply_str}: {content}{reaction_str}"
@@ -516,8 +505,7 @@ def _extract_responses_api_usage(
         # Providers include reasoning in output_tokens — subtract to avoid double-counting
         output_tokens = max(output_tokens - reasoning_tokens, 0)
     web_search_calls = sum(
-        1 for item in (response.output or [])
-        if getattr(item, "type", "") == "web_search_call"
+        1 for item in (response.output or []) if getattr(item, "type", "") == "web_search_call"
     )
     return input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, web_search_calls
 
@@ -551,9 +539,7 @@ class BaseAgentCog(commands.Cog):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if cls.agent_redis_name == "ai":
-            raise TypeError(
-                f"{cls.__name__} must override agent_redis_name (got default 'ai')"
-            )
+            raise TypeError(f"{cls.__name__} must override agent_redis_name (got default 'ai')")
 
     def __init__(self, bot: discord.Bot):
         self.bot = bot
@@ -566,9 +552,7 @@ class BaseAgentCog(commands.Cog):
             self.agent_redis_name, self.agent_redis_name
         )
         self.other_agent_names: list[str] = [
-            name
-            for key, name in AGENT_DISPLAY_NAMES.items()
-            if key != self.agent_redis_name
+            name for key, name in AGENT_DISPLAY_NAMES.items() if key != self.agent_redis_name
         ]
 
         # Rate limiting state
@@ -607,21 +591,15 @@ class BaseAgentCog(commands.Cog):
                 import redis.asyncio as aioredis
 
                 self._redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-                self._listener_task = asyncio.create_task(
-                    self._listen_for_instructions()
-                )
+                self._listener_task = asyncio.create_task(self._listen_for_instructions())
                 logger.info(
                     "Agent Redis listener started on agent:%s:instructions",
                     self.agent_redis_name,
                 )
                 # Signal readiness so the coordinator knows this bot is live
-                await self._redis.set(
-                    f"agent:{self.agent_redis_name}:ready", "1", ex=300
-                )
+                await self._redis.set(f"agent:{self.agent_redis_name}:ready", "1", ex=300)
             except Exception:
-                logger.exception(
-                    "Failed to connect to Redis — running without coordinator"
-                )
+                logger.exception("Failed to connect to Redis — running without coordinator")
         else:
             logger.info("REDIS_URL not set — agent will only respond to @mentions.")
 
@@ -629,10 +607,8 @@ class BaseAgentCog(commands.Cog):
         """Cleanup on cog unload."""
         if self._listener_task and not self._listener_task.done():
             self._listener_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._listener_task
-            except asyncio.CancelledError:
-                pass
         if self._redis:
             await self._redis.aclose()
         if self._http_session and not self._http_session.closed:
@@ -783,7 +759,9 @@ class BaseAgentCog(commands.Cog):
 
         channel_theme = instruction.get("channel_theme", "")
         conversation_history = instruction.get("conversation_history", [])
-        coordinator_context = _format_conversation_history(conversation_history, theme=channel_theme)
+        coordinator_context = _format_conversation_history(
+            conversation_history, theme=channel_theme
+        )
         is_starter = instruction.get("is_conversation_starter", False)
 
         # On round 1, fetch recent Discord history as backdrop for channel context.
@@ -814,9 +792,7 @@ class BaseAgentCog(commands.Cog):
             channel_name=channel.name,
             channel_theme=channel_theme,
             topic=instruction.get("topic", ""),
-            react_to_message_id=self._last_message_id_from_history(
-                conversation_history
-            ),
+            react_to_message_id=self._last_message_id_from_history(conversation_history),
             force_respond=is_starter,
             is_conversation_starter=is_starter,
         )
@@ -870,15 +846,11 @@ class BaseAgentCog(commands.Cog):
 
         # Respond if this bot is @mentioned directly OR the @bots role is mentioned
         direct_mention = self.bot.user in message.mentions
-        role_mention = BOTS_ROLE_ID and any(
-            r.id == BOTS_ROLE_ID for r in message.role_mentions
-        )
+        role_mention = BOTS_ROLE_ID and any(r.id == BOTS_ROLE_ID for r in message.role_mentions)
         if not direct_mention and not role_mention:
             return
 
-        mention_type = (
-            "role @bots" if role_mention and not direct_mention else "@mention"
-        )
+        mention_type = "role @bots" if role_mention and not direct_mention else "@mention"
         channel_name = getattr(message.channel, "name", str(message.channel.id))
         logger.info(
             "[%s] %s from %s in #%s (msg:%s)",
@@ -906,15 +878,11 @@ class BaseAgentCog(commands.Cog):
         window = get_context_window(mention_theme)
         history_messages: list[discord.Message] = []
         try:
-            async for msg in message.channel.history(
-                limit=window, before=message
-            ):
+            async for msg in message.channel.history(limit=window, before=message):
                 history_messages.append(msg)
             history_messages.reverse()
         except discord.Forbidden:
-            logger.warning(
-                "No permission to read history in channel %s", message.channel.id
-            )
+            logger.warning("No permission to read history in channel %s", message.channel.id)
 
         guild = message.guild
         context_text = _format_discord_history(history_messages, guild=guild, theme=mention_theme)
@@ -993,7 +961,7 @@ class BaseAgentCog(commands.Cog):
             skip_rule = (
                 "You are STARTING a new conversation. You MUST respond (skip=false). "
                 "Open with something fresh that fits this channel's theme. "
-                "Set \"topic\" to a short label (3-8 words) describing the topic you chose."
+                'Set "topic" to a short label (3-8 words) describing the topic you chose.'
             )
         elif force_respond:
             skip_rule = (
@@ -1005,10 +973,7 @@ class BaseAgentCog(commands.Cog):
             skip_rule = "SKIP most messages (~50-60%). Only respond when you genuinely have something to add."
 
         if topic:
-            topic_line = (
-                f"\nConversation topic: {topic} — stay on-topic. "
-                "Brief tangents are fine."
-            )
+            topic_line = f"\nConversation topic: {topic} — stay on-topic. Brief tangents are fine."
         else:
             topic_line = ""
 
@@ -1078,9 +1043,7 @@ class BaseAgentCog(commands.Cog):
             if not decision.get("generate_image") or not decision.get("image_prompt"):
                 decision["generate_image"] = True
                 if not decision.get("image_prompt"):
-                    decision["image_prompt"] = (
-                        decision.get("text") or "funny meme image"
-                    )
+                    decision["image_prompt"] = decision.get("text") or "funny meme image"
             # Images speak for themselves — suppress text
             decision["text"] = None
 
@@ -1129,8 +1092,10 @@ class BaseAgentCog(commands.Cog):
                 tool_log,
             )
         daily_total = await self._accumulate_cost(
-            ai_cost, image_cost,
-            ai_response.input_tokens, ai_response.output_tokens,
+            ai_cost,
+            image_cost,
+            ai_response.input_tokens,
+            ai_response.output_tokens,
             reasoning_tokens=ai_response.reasoning_tokens,
             image_generated=image_cost > 0,
             web_search_calls=ai_response.web_search_calls,
@@ -1141,8 +1106,10 @@ class BaseAgentCog(commands.Cog):
         embed: discord.Embed | None = None
         if SHOW_COST_EMBEDS and will_post and total_cost > 0:
             embed = self._build_cost_embed(
-                ai_cost, image_cost,
-                ai_response.input_tokens, ai_response.output_tokens,
+                ai_cost,
+                image_cost,
+                ai_response.input_tokens,
+                ai_response.output_tokens,
                 daily_total,
                 reasoning_tokens=ai_response.reasoning_tokens,
                 thinking_used=ai_response.thinking_used,
@@ -1155,7 +1122,9 @@ class BaseAgentCog(commands.Cog):
         # Send text message (with embed attached if this is the primary post)
         if text:
             sent_msg = await self._send_text(
-                channel, text, embed=embed if not image_bytes else None,
+                channel,
+                text,
+                embed=embed if not image_bytes else None,
             )
             if sent_msg:
                 result["text"] = text
@@ -1266,18 +1235,14 @@ class BaseAgentCog(commands.Cog):
             await message.add_reaction(emoji)
             return True
         except Exception:
-            logger.exception(
-                "Failed to add reaction %s to message %s", emoji, message_id
-            )
+            logger.exception("Failed to add reaction %s to message %s", emoji, message_id)
             return False
 
     # ------------------------------------------------------------------
     # Redis result publishing
     # ------------------------------------------------------------------
 
-    async def _publish_result(
-        self, instruction_id: str, result: dict[str, Any]
-    ) -> None:
+    async def _publish_result(self, instruction_id: str, result: dict[str, Any]) -> None:
         """Publish action result back to the coordinator via Redis."""
         if not self._redis:
             return
@@ -1419,18 +1384,14 @@ class BaseAgentCog(commands.Cog):
 
         # Daily cap
         if self._daily_count >= AGENT_MAX_DAILY:
-            logger.debug(
-                "Daily cap reached (%d/%d)", self._daily_count, AGENT_MAX_DAILY
-            )
+            logger.debug("Daily cap reached (%d/%d)", self._daily_count, AGENT_MAX_DAILY)
             return False
 
         # Per-channel cooldown
         last = self._last_response_time.get(channel_id, 0)
         if now - last < AGENT_COOLDOWN_SECONDS:
             remaining = AGENT_COOLDOWN_SECONDS - (now - last)
-            logger.debug(
-                "Channel %s on cooldown (%.0fs remaining)", channel_id, remaining
-            )
+            logger.debug("Channel %s on cooldown (%.0fs remaining)", channel_id, remaining)
             return False
 
         return True

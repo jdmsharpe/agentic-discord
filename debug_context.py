@@ -23,10 +23,10 @@ AGENTS = ["chatgpt", "claude", "gemini", "grok"]
 
 # ANSI colors for agent differentiation
 AGENT_COLORS = {
-    "chatgpt": "\033[32m",   # green
-    "claude": "\033[33m",    # yellow
-    "gemini": "\033[34m",    # blue
-    "grok": "\033[31m",      # red
+    "chatgpt": "\033[32m",  # green
+    "claude": "\033[33m",  # yellow
+    "gemini": "\033[34m",  # blue
+    "grok": "\033[31m",  # red
 }
 RESET = "\033[0m"
 DIM = "\033[2m"
@@ -95,7 +95,7 @@ def format_result(data: dict) -> str:
     if data.get("end_conversation"):
         parts.append("END_CONVERSATION")
     if data.get("topic"):
-        parts.append(f"topic=\"{data['topic']}\"")
+        parts.append(f'topic="{data["topic"]}"')
 
     return f"  {color}← {agent}: {', '.join(parts)}{RESET}"
 
@@ -112,10 +112,9 @@ async def main(redis_url: str) -> None:
         sys.exit(1)
 
     pubsub = r.pubsub()
-    channels = (
-        [f"agent:{name}:instructions" for name in AGENTS]
-        + [f"agent:{name}:results" for name in AGENTS]
-    )
+    channels = [f"agent:{name}:instructions" for name in AGENTS] + [
+        f"agent:{name}:results" for name in AGENTS
+    ]
     await pubsub.subscribe(*channels)
     print(f"{DIM}Listening on: {', '.join(channels)}{RESET}")
     print(f"{DIM}Waiting for conversations...{RESET}\n")

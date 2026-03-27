@@ -4,13 +4,13 @@ import asyncio
 import datetime
 import json
 import random
-import time
-import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # Patch coordinator config before imports
 import sys
+import time
 import types as stdlib_types
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 fake_config = stdlib_types.ModuleType("agent_coordinator.config")
 fake_config.REDIS_URL = "redis://localhost:6379"
@@ -42,9 +42,8 @@ fake_agent_config.CONTEXT_WINDOW_SIZE = 50
 fake_agent_config.get_context_window = lambda theme=None: 50
 sys.modules["agent_config"] = fake_agent_config
 
-from agent_coordinator.engine import ConversationEngine, ConversationState
-from agent_coordinator.scheduler import DailyScheduler
-
+from agent_coordinator.engine import ConversationEngine, ConversationState  # noqa: E402
+from agent_coordinator.scheduler import DailyScheduler  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Scheduler tests
@@ -74,6 +73,7 @@ class TestScheduler(unittest.TestCase):
     def test_generate_todays_times_filters_past(self):
         times = self.scheduler._generate_todays_times()
         from zoneinfo import ZoneInfo
+
         now = datetime.datetime.now(ZoneInfo("America/New_York"))
         for t in times:
             self.assertGreater(t, now)
@@ -148,12 +148,14 @@ class TestSendTurn(unittest.TestCase):
                 if iid in self.engine._pending_responses:
                     future = self.engine._pending_responses[iid]
                     if not future.done():
-                        future.set_result({
-                            "skipped": False,
-                            "text": "Hello!",
-                            "agent_name": "chatgpt",
-                            "message_id": 999,
-                        })
+                        future.set_result(
+                            {
+                                "skipped": False,
+                                "text": "Hello!",
+                                "agent_name": "chatgpt",
+                                "message_id": 999,
+                            }
+                        )
 
             self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
             result = await self.engine._send_turn(state, "chatgpt")
@@ -220,10 +222,12 @@ class TestReactiveTrigger(unittest.TestCase):
         self.engine._active_conversations[100] = ConversationState(channel_id=100)
 
         async def run():
-            await self.engine._maybe_trigger_reactive({
-                "channel_id": 100,
-                "agent_name": "chatgpt",
-            })
+            await self.engine._maybe_trigger_reactive(
+                {
+                    "channel_id": 100,
+                    "agent_name": "chatgpt",
+                }
+            )
             self.mock_redis.publish.assert_not_called()
 
         asyncio.run(run())
@@ -232,10 +236,12 @@ class TestReactiveTrigger(unittest.TestCase):
         self.engine._reactive_cooldowns[100] = time.time()
 
         async def run():
-            await self.engine._maybe_trigger_reactive({
-                "channel_id": 100,
-                "agent_name": "chatgpt",
-            })
+            await self.engine._maybe_trigger_reactive(
+                {
+                    "channel_id": 100,
+                    "agent_name": "chatgpt",
+                }
+            )
             self.mock_redis.publish.assert_not_called()
 
         asyncio.run(run())
@@ -245,10 +251,12 @@ class TestReactiveTrigger(unittest.TestCase):
         random.seed(0)
 
         async def run():
-            await self.engine._maybe_trigger_reactive({
-                "channel_id": 100,
-                "agent_name": "chatgpt",
-            })
+            await self.engine._maybe_trigger_reactive(
+                {
+                    "channel_id": 100,
+                    "agent_name": "chatgpt",
+                }
+            )
             self.mock_redis.publish.assert_not_called()
 
         asyncio.run(run())
@@ -273,10 +281,12 @@ class TestReactiveTrigger(unittest.TestCase):
 
             self.engine._send_turn = mock_send
 
-            await self.engine._maybe_trigger_reactive({
-                "channel_id": 100,
-                "agent_name": "chatgpt",
-            })
+            await self.engine._maybe_trigger_reactive(
+                {
+                    "channel_id": 100,
+                    "agent_name": "chatgpt",
+                }
+            )
 
             self.assertNotIn("chatgpt", called_agents)
 
@@ -344,7 +354,12 @@ class TestRunRound(unittest.TestCase):
 
         async def mock_send(s, agent_name, is_starter=False):
             if is_starter:
-                return {"skipped": False, "text": "Let's talk about AI safety", "message_id": 1, "topic": "AI safety regulations"}
+                return {
+                    "skipped": False,
+                    "text": "Let's talk about AI safety",
+                    "message_id": 1,
+                    "topic": "AI safety regulations",
+                }
             return {"skipped": False, "text": "Good topic!", "message_id": 2}
 
         self.engine._send_turn = mock_send
@@ -370,9 +385,9 @@ class TestRunRound(unittest.TestCase):
                 published_instructions.append(instruction)
                 iid = instruction["instruction_id"]
                 if iid in self.engine._pending_responses:
-                    self.engine._pending_responses[iid].set_result({
-                        "skipped": False, "text": "hi", "message_id": 1
-                    })
+                    self.engine._pending_responses[iid].set_result(
+                        {"skipped": False, "text": "hi", "message_id": 1}
+                    )
 
             self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
             await self.engine._send_turn(state, "chatgpt")
@@ -449,7 +464,12 @@ class TestEndConversation(unittest.TestCase):
             nonlocal call_count
             call_count += 1
             if call_count <= 2:
-                return {"skipped": False, "text": "Bye!", "message_id": call_count, "end_conversation": True}
+                return {
+                    "skipped": False,
+                    "text": "Bye!",
+                    "message_id": call_count,
+                    "end_conversation": True,
+                }
             return {"skipped": False, "text": "More talk", "message_id": call_count}
 
         self.engine._send_turn = mock_send
@@ -555,7 +575,9 @@ class TestRedisResilience(unittest.TestCase):
         )
 
         async def run():
-            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with patch(
+                "agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock
+            ) as mock_sleep:
                 await self.engine._wait_for_redis()
 
             self.assertEqual(self.mock_redis.ping.await_count, 3)
@@ -603,9 +625,11 @@ class TestRedisResilience(unittest.TestCase):
         self.mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
 
         async def run():
-            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
-                with self.assertRaises(asyncio.CancelledError):
-                    await self.engine._listen_for_results()
+            with (
+                patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock),
+                self.assertRaises(asyncio.CancelledError),
+            ):
+                await self.engine._listen_for_results()
 
             self.assertEqual(call_count, 2)
 
@@ -629,11 +653,13 @@ class TestRedisResilience(unittest.TestCase):
             yield {"type": "subscribe", "data": None}
             yield {
                 "type": "message",
-                "data": json.dumps({
-                    "instruction_id": "test-123",
-                    "skipped": False,
-                    "text": "hello",
-                }),
+                "data": json.dumps(
+                    {
+                        "instruction_id": "test-123",
+                        "skipped": False,
+                        "text": "hello",
+                    }
+                ),
             }
             raise asyncio.CancelledError()
 
@@ -645,9 +671,11 @@ class TestRedisResilience(unittest.TestCase):
             future = loop.create_future()
             self.engine._pending_responses["test-123"] = future
 
-            with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
-                with self.assertRaises(asyncio.CancelledError):
-                    await self.engine._listen_for_results()
+            with (
+                patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock),
+                self.assertRaises(asyncio.CancelledError),
+            ):
+                await self.engine._listen_for_results()
 
             self.assertTrue(future.done())
             self.assertEqual(future.result()["text"], "hello")
@@ -694,9 +722,9 @@ class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
                 instruction = json.loads(data)
                 iid = instruction["instruction_id"]
                 if iid in self.engine._pending_responses:
-                    self.engine._pending_responses[iid].set_result({
-                        "skipped": False, "text": "hello", "message_id": 1
-                    })
+                    self.engine._pending_responses[iid].set_result(
+                        {"skipped": False, "text": "hello", "message_id": 1}
+                    )
 
             self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
             await self.engine._send_turn(state, "claude")
@@ -748,6 +776,7 @@ class TestSchedulePersistence(unittest.TestCase):
 
     def test_loads_existing_schedule_from_redis(self):
         from zoneinfo import ZoneInfo
+
         tz = ZoneInfo("America/New_York")
         now = datetime.datetime.now(tz)
         future_time = now + datetime.timedelta(hours=2)
@@ -764,6 +793,7 @@ class TestSchedulePersistence(unittest.TestCase):
 
     def test_filters_past_times_from_redis_schedule(self):
         from zoneinfo import ZoneInfo
+
         tz = ZoneInfo("America/New_York")
         now = datetime.datetime.now(tz)
         past_time = now - datetime.timedelta(hours=1)
@@ -779,6 +809,7 @@ class TestSchedulePersistence(unittest.TestCase):
 
     def test_regenerates_when_all_redis_times_past(self):
         from zoneinfo import ZoneInfo
+
         tz = ZoneInfo("America/New_York")
         now = datetime.datetime.now(tz)
         past_time = now - datetime.timedelta(hours=1)

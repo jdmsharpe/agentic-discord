@@ -32,9 +32,7 @@ _COG_MAP = {
 
 def main():
     if not BOT_TOKEN:
-        logger.error(
-            "No BOT_TOKEN resolved for AGENT_NAME=%s — check your .env", AGENT_NAME
-        )
+        logger.error("No BOT_TOKEN resolved for AGENT_NAME=%s — check your .env", AGENT_NAME)
         sys.exit(1)
 
     if AGENT_NAME not in _COG_MAP:
@@ -63,9 +61,7 @@ def main():
     @bot.event
     async def on_ready():
         assert bot.user is not None
-        logger.info(
-            "Agent '%s' online as %s (ID: %s)", AGENT_NAME, bot.user, bot.user.id
-        )
+        logger.info("Agent '%s' online as %s (ID: %s)", AGENT_NAME, bot.user, bot.user.id)
 
     bot.add_cog(CogClass(bot=bot))
     logger.info("Starting agent: %s", AGENT_NAME)

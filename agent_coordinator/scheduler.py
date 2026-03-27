@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import json
 import logging
@@ -39,10 +40,8 @@ class DailyScheduler:
     async def stop(self) -> None:
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
     async def _run_forever(self) -> None:
         """Outer loop: generate today's schedule, execute it, repeat tomorrow."""
@@ -111,9 +110,7 @@ class DailyScheduler:
         if raw:
             try:
                 stored = json.loads(raw)
-                times = [
-                    datetime.datetime.fromisoformat(t) for t in stored
-                ]
+                times = [datetime.datetime.fromisoformat(t) for t in stored]
                 # Filter to only future times
                 times = [t for t in times if t > now]
                 if times:

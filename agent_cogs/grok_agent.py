@@ -11,6 +11,7 @@ import httpx
 from openai import AsyncOpenAI
 
 from agent_config import XAI_API_KEY
+
 from .base import AIResponse, BaseAgentCog, _extract_responses_api_usage
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ class GrokAgentCog(BaseAgentCog):
                 prompt=prompt,
                 n=1,
             )
-            for item in (response.data or []):
+            for item in response.data or []:
                 if hasattr(item, "b64_json") and item.b64_json:
                     return base64.b64decode(item.b64_json)
                 if hasattr(item, "url") and item.url:

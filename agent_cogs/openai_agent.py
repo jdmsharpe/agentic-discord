@@ -9,6 +9,7 @@ import discord
 from openai import AsyncOpenAI
 
 from agent_config import OPENAI_API_KEY
+
 from .base import AIResponse, BaseAgentCog, _extract_responses_api_usage
 
 logger = logging.getLogger(__name__)

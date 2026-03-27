@@ -10,6 +10,7 @@ from google import genai
 from google.genai import types
 
 from agent_config import GEMINI_API_KEY
+
 from .base import AIResponse, BaseAgentCog, _download_image_bytes
 
 logger = logging.getLogger(__name__)

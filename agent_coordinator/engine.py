@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
-from zoneinfo import ZoneInfo
 import json
 import logging
 import random
@@ -13,6 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TypedDict
+from zoneinfo import ZoneInfo
 
 from .config import (
     AGENT_CHANNEL_IDS,
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 class HistoryEntry(TypedDict, total=False):
     """A single entry in the conversation history."""
+
     agent: str
     text: str
     message_id: int | None
@@ -44,6 +46,7 @@ class HistoryEntry(TypedDict, total=False):
 
 class AgentResult(TypedDict, total=False):
     """Result dict returned by an agent via Redis."""
+
     protocol_version: int
     instruction_id: str
     agent_name: str
@@ -99,10 +102,8 @@ class ConversationEngine:
     async def stop(self) -> None:
         if self._result_listener_task and not self._result_listener_task.done():
             self._result_listener_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._result_listener_task
-            except asyncio.CancelledError:
-                pass
 
     async def _wait_for_redis(self) -> None:
         """Block until Redis is reachable. Retries with backoff up to ~30s."""
@@ -156,9 +157,7 @@ class ConversationEngine:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception(
-                    "Result listener disconnected, reconnecting in %ds...", delay
-                )
+                logger.exception("Result listener disconnected, reconnecting in %ds...", delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._LISTENER_MAX_BACKOFF)
             finally:
@@ -196,13 +195,12 @@ class ConversationEngine:
             # Warn about misconfigured priority channels (once per queue creation)
             invalid = [c for c in PRIORITY_CHANNEL_IDS if c not in AGENT_CHANNEL_IDS]
             if invalid:
-                logger.warning(
-                    "Priority channels not in CHANNEL_THEME_MAP (ignored): %s", invalid
-                )
+                logger.warning("Priority channels not in CHANNEL_THEME_MAP (ignored): %s", invalid)
             valid_priority = [c for c in PRIORITY_CHANNEL_IDS if c in AGENT_CHANNEL_IDS]
             non_priority = [c for c in AGENT_CHANNEL_IDS if c not in valid_priority]
-            ordered = random.sample(valid_priority, len(valid_priority)) + \
-                      random.sample(non_priority, len(non_priority))
+            ordered = random.sample(valid_priority, len(valid_priority)) + random.sample(
+                non_priority, len(non_priority)
+            )
             await self._redis.rpush(key, *[str(c) for c in ordered])
             await self._redis.expire(key, DAILY_KEY_TTL_SECONDS)
             logger.info("Daily channel queue created for %s: %s", today, ordered)
@@ -293,25 +291,31 @@ class ConversationEngine:
             else:
                 if result.get("text"):
                     state.text_responses_this_round += 1
-                    state.conversation_history.append({
-                        "agent": agent_name,
-                        "text": result["text"],
-                        "message_id": result.get("message_id"),
-                    })
+                    state.conversation_history.append(
+                        {
+                            "agent": agent_name,
+                            "text": result["text"],
+                            "message_id": result.get("message_id"),
+                        }
+                    )
                 if result.get("image_url"):
                     state.text_responses_this_round += 1
                     prompt = result.get("image_prompt", "image")
-                    state.conversation_history.append({
-                        "agent": agent_name,
-                        "text": f'[posted image: "{prompt}" → {result["image_url"]}]',
-                        "message_id": result.get("message_id"),
-                    })
+                    state.conversation_history.append(
+                        {
+                            "agent": agent_name,
+                            "text": f'[posted image: "{prompt}" → {result["image_url"]}]',
+                            "message_id": result.get("message_id"),
+                        }
+                    )
                 if result.get("emoji_reacted"):
-                    state.conversation_history.append({
-                        "agent": agent_name,
-                        "text": f'[reacted {result["emoji_reacted"]} to msg:{result.get("react_to_message_id", "?")}]',
-                        "message_id": None,
-                    })
+                    state.conversation_history.append(
+                        {
+                            "agent": agent_name,
+                            "text": f"[reacted {result['emoji_reacted']} to msg:{result.get('react_to_message_id', '?')}]",
+                            "message_id": None,
+                        }
+                    )
 
                 # Track consecutive end_conversation requests (skips don't affect counter)
                 if result.get("end_conversation"):
@@ -344,7 +348,7 @@ class ConversationEngine:
             "topic": state.topic,
             "round_number": state.round_number,
             "conversation_id": state.conversation_id,
-            "conversation_history": state.conversation_history[-MAX_ROUNDS * len(AGENT_NAMES):],
+            "conversation_history": state.conversation_history[-MAX_ROUNDS * len(AGENT_NAMES) :],
             "is_conversation_starter": is_starter,
         }
 
@@ -357,7 +361,12 @@ class ConversationEngine:
                 f"agent:{agent_name}:instructions",
                 json.dumps(instruction),
             )
-            logger.debug("Instruction %s sent to %s, awaiting result (timeout=%ss)", instruction_id, agent_name, AGENT_RESPONSE_TIMEOUT)
+            logger.debug(
+                "Instruction %s sent to %s, awaiting result (timeout=%ss)",
+                instruction_id,
+                agent_name,
+                AGENT_RESPONSE_TIMEOUT,
+            )
             result = await asyncio.wait_for(future, timeout=AGENT_RESPONSE_TIMEOUT)
             logger.info(
                 "Agent %s responded: skipped=%s text=%s image=%s emoji=%s end_convo=%s",
@@ -370,12 +379,14 @@ class ConversationEngine:
             )
             self._consecutive_timeouts = 0
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._consecutive_timeouts += 1
             logger.warning(
                 "Agent %s timed out for instruction %s (consecutive: %d/%d)",
-                agent_name, instruction_id,
-                self._consecutive_timeouts, CONSECUTIVE_TIMEOUT_THRESHOLD,
+                agent_name,
+                instruction_id,
+                self._consecutive_timeouts,
+                CONSECUTIVE_TIMEOUT_THRESHOLD,
             )
             self._pending_responses.pop(instruction_id, None)
             if self._consecutive_timeouts >= CONSECUTIVE_TIMEOUT_THRESHOLD:
@@ -383,9 +394,7 @@ class ConversationEngine:
                     "Hit %d consecutive timeouts — exiting for systemd restart",
                     self._consecutive_timeouts,
                 )
-                asyncio.get_running_loop().call_soon(
-                    lambda: sys.exit(1)
-                )
+                asyncio.get_running_loop().call_soon(lambda: sys.exit(1))
             return {"skipped": True, "reason": "timeout", "agent_name": agent_name}
         except Exception:
             logger.exception("Error sending turn to %s", agent_name)
@@ -428,14 +437,24 @@ class ConversationEngine:
             return
 
         now = time.time()
-        cooldown_remaining = REACTIVE_COOLDOWN_SECONDS - (now - self._reactive_cooldowns.get(channel_id, 0))
+        cooldown_remaining = REACTIVE_COOLDOWN_SECONDS - (
+            now - self._reactive_cooldowns.get(channel_id, 0)
+        )
         if cooldown_remaining > 0:
-            logger.debug("Reactive skipped — cooldown %.0fs remaining in channel %s", cooldown_remaining, channel_id)
+            logger.debug(
+                "Reactive skipped — cooldown %.0fs remaining in channel %s",
+                cooldown_remaining,
+                channel_id,
+            )
             return
 
         roll = random.random()
         if roll > REACTIVE_TRIGGER_PROBABILITY:
-            logger.debug("Reactive skipped — probability check failed (%.2f > %.2f)", roll, REACTIVE_TRIGGER_PROBABILITY)
+            logger.debug(
+                "Reactive skipped — probability check failed (%.2f > %.2f)",
+                roll,
+                REACTIVE_TRIGGER_PROBABILITY,
+            )
             return
 
         self._reactive_cooldowns[channel_id] = now
@@ -461,11 +480,13 @@ class ConversationEngine:
             for agent_name in reactive_agents:
                 result = await self._send_turn(state, agent_name)
                 if result.get("text"):
-                    state.conversation_history.append({
-                        "agent": agent_name,
-                        "text": result["text"],
-                        "message_id": result.get("message_id"),
-                    })
+                    state.conversation_history.append(
+                        {
+                            "agent": agent_name,
+                            "text": result["text"],
+                            "message_id": result.get("message_id"),
+                        }
+                    )
                 await asyncio.sleep(random.uniform(3.0, 8.0))
         finally:
             del self._active_conversations[channel_id]

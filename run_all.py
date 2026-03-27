@@ -1,8 +1,8 @@
 """Launch all 4 agent bots + coordinator in parallel. Ctrl+C stops all."""
 
 import asyncio
-import logging
 import importlib
+import logging
 
 from discord import Bot, Intents
 
@@ -53,9 +53,9 @@ async def start_agent(name: str, token: str, module_path: str, class_name: str):
             bot = Bot(intents=intents)
 
             @bot.event
-            async def on_ready(n=name):
-                assert bot.user is not None
-                _log(n, "Online as %s (ID: %s)", bot.user, bot.user.id)
+            async def on_ready(n=name, b=bot):
+                assert b.user is not None
+                _log(n, "Online as %s (ID: %s)", b.user, b.user.id)
 
             bot.add_cog(CogClass(bot=bot))
             _log(name, "Starting...")
