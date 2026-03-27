@@ -127,6 +127,7 @@ cp .env.example .env   # fill in tokens and keys
 docker run -d --name agentic-redis --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine
 
 pip install -r requirements.txt
+git config core.hooksPath .githooks        # enable pre-commit hook
 
 python run_all.py                          # all 4 bots + coordinator
 AGENT_NAME=gemini python run_bot.py        # single bot
@@ -144,7 +145,7 @@ ruff format .           # auto-format
 ```
 
 Config lives in `pyproject.toml` (rules: E/W/F/I/UP/B/SIM, py312, 100 col line length).
-A standalone pre-commit hook (`.git/hooks/pre-commit`) auto-formats staged `.py` files and blocks commits on lint failures. Skips gracefully if ruff isn't installed.
+A pre-commit hook (`.githooks/pre-commit`) auto-formats staged `.py` files and blocks commits on lint failures. Skips gracefully if ruff isn't installed. After cloning, run `git config core.hooksPath .githooks` to activate it.
 
 Pyright is configured in `pyproject.toml` for type checking (`agent_cogs/`, `agent_coordinator/`, `tests/`). Tests have relaxed rules for monkey-patching (`reportAttributeAccessIssue`, `reportOptionalMemberAccess` suppressed). SDK type mismatches use `# type: ignore[arg-type]` where dict literals don't match strict SDK `TypedDict` params.
 

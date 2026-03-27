@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── Python (ruff) ────────────────────────────────────────────────────
+if command -v ruff &>/dev/null; then
+    py_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+
+    if [[ -n "$py_files" ]]; then
+        # Auto-format staged files and re-stage
+        echo "$py_files" | xargs ruff format
+        echo "$py_files" | xargs git add
+
+        # Lint check (strict — blocks commit on failure)
+        echo "$py_files" | xargs ruff check
+    fi
+else
+    echo "⚠  ruff not found — skipping Python format/lint"
+fi
