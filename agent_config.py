@@ -55,9 +55,7 @@ AGENT_PERSONALITY_MAP: dict[str, str] = {
 
 # Discord server / channel / bot IDs
 _guild_ids_str = os.getenv("GUILD_IDS", "")
-GUILD_IDS: list[int] = [
-    int(gid.strip()) for gid in _guild_ids_str.split(",") if gid.strip()
-]
+GUILD_IDS: list[int] = [int(gid.strip()) for gid in _guild_ids_str.split(",") if gid.strip()]
 
 # Derive active channel IDs and themes from CHANNEL_THEME_MAP
 _theme_map_str = os.getenv("CHANNEL_THEME_MAP", "")

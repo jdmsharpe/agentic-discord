@@ -4,12 +4,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from agent_config import (
-    ACTIVE_AGENT_NAMES,
-    AGENT_CHANNEL_IDS as AGENT_CHANNEL_IDS,
-    CHANNEL_THEMES as CHANNEL_THEMES,
-    REDIS_URL as REDIS_URL,
-)
+from agent_config import ACTIVE_AGENT_NAMES  # noqa: E402
+from agent_config import AGENT_CHANNEL_IDS as AGENT_CHANNEL_IDS  # noqa: E402
+from agent_config import CHANNEL_THEMES as CHANNEL_THEMES  # noqa: E402
+from agent_config import REDIS_URL as REDIS_URL  # noqa: E402
 
 # Agent names the coordinator manages — derived from which BOT_TOKEN_* env vars are set
 AGENT_NAMES: list[str] = ACTIVE_AGENT_NAMES
@@ -31,7 +29,11 @@ MIN_RESPONDENTS_TO_CONTINUE: int = min(2, len(AGENT_NAMES))
 CONSECUTIVE_TIMEOUT_THRESHOLD: int = int(os.getenv("COORDINATOR_TIMEOUT_THRESHOLD", "8"))
 
 # Fire a conversation immediately on startup (for testing)
-FIRE_ON_STARTUP: bool = os.getenv("COORDINATOR_FIRE_ON_STARTUP", "false").lower() in ("true", "1", "yes")
+FIRE_ON_STARTUP: bool = os.getenv("COORDINATOR_FIRE_ON_STARTUP", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # Reactive triggers
 REACTIVE_TRIGGER_PROBABILITY: float = float(os.getenv("COORDINATOR_REACTIVE_PROBABILITY", "0.15"))

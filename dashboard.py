@@ -10,10 +10,11 @@ a live Chart.js dashboard (auto-refreshes every 30 s).
 import argparse
 from datetime import date, timedelta
 
-from aiohttp import web
 import redis.asyncio as aioredis
+from aiohttp import web
 
-from agent_cogs.base import AGENT_DISPLAY_NAMES, AGENT_COLORS as _AGENT_COLORS_INT
+from agent_cogs.base import AGENT_COLORS as _AGENT_COLORS_INT
+from agent_cogs.base import AGENT_DISPLAY_NAMES
 
 AGENTS = list(AGENT_DISPLAY_NAMES.keys())
 AGENT_COLORS = {name: f"#{color:06x}" for name, color in _AGENT_COLORS_INT.items()}
@@ -22,11 +23,10 @@ AGENT_COLORS = {name: f"#{color:06x}" for name, color in _AGENT_COLORS_INT.items
 # Data layer
 # ---------------------------------------------------------------------------
 
+
 async def get_cost_data(r: aioredis.Redis, days: int = 30) -> dict:
     today = date.today()
-    dates = [
-        (today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)
-    ]
+    dates = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
     float_fields = {"total_cost", "ai_cost", "image_cost"}
     data: dict[str, dict] = {}
     for d in dates:
@@ -49,6 +49,7 @@ async def get_cost_data(r: aioredis.Redis, days: int = 30) -> dict:
 # Request handlers
 # ---------------------------------------------------------------------------
 
+
 async def handle_api(request: web.Request) -> web.Response:
     r: aioredis.Redis = request.app["redis"]
     days = min(int(request.rel_url.query.get("days", 30)), 90)
@@ -64,8 +65,10 @@ async def handle_index(_: web.Request) -> web.Response:
 # App lifecycle
 # ---------------------------------------------------------------------------
 
+
 async def on_startup(app: web.Application) -> None:
     from agent_config import REDIS_URL as _redis_url
+
     redis_url = _redis_url or "redis://127.0.0.1:6379"
     app["redis"] = aioredis.from_url(redis_url, decode_responses=True)
 

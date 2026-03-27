@@ -10,15 +10,15 @@ Uses a concrete mock subclass of BaseAgentCog to test shared behavior:
 
 import asyncio
 import json
+
+# Patch agent_config before importing base
+import sys
 import time
+import types as stdlib_types
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
-
-# Patch agent_config before importing base
-import sys
-import types as stdlib_types
 
 # Create a fake agent_config module with test values
 fake_config = stdlib_types.ModuleType("agent_config")
@@ -49,14 +49,14 @@ def _fake_get_context_window(theme=None):
 fake_config.get_context_window = _fake_get_context_window
 sys.modules["agent_config"] = fake_config
 
-from agent_cogs.base import (
-    AIResponse,
-    BaseAgentCog,
+from agent_cogs.base import (  # noqa: E402
     GEMINI_MAPS_GROUNDING_COST_PER_CALL,
     OPENAI_WEB_SEARCH_COST_PER_CALL,
+    AIResponse,
+    BaseAgentCog,
     _compute_token_cost,
-    _parse_decision,
     _format_conversation_history,
+    _parse_decision,
     format_api_error,
 )
 
@@ -64,7 +64,7 @@ from agent_cogs.base import (
 async def _empty_async_iter():
     """Async iterator that yields nothing — used to mock channel.history()."""
     return
-    yield  # noqa: makes this an async generator
+    yield  # noqa: F841 — makes this an async generator
 
 
 class MockAgentCog(BaseAgentCog):
@@ -91,7 +91,9 @@ class MockAgentCog(BaseAgentCog):
         self.mock_ai_response = '{"skip": false, "text": "Hello!", "generate_image": false, "image_prompt": null, "react_emoji": null}'
         self.mock_image_bytes = b"fake_png_bytes"
 
-    async def _call_ai(self, system_prompt: str, user_prompt: str, image_urls: list[str] | None = None) -> AIResponse:
+    async def _call_ai(
+        self, system_prompt: str, user_prompt: str, image_urls: list[str] | None = None
+    ) -> AIResponse:
         return AIResponse(text=self.mock_ai_response, input_tokens=100, output_tokens=50)
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:
@@ -127,9 +129,7 @@ class TestParseDecision(unittest.TestCase):
         self.assertEqual(result["text"], "fenced")
 
     def test_unknown_fields_ignored(self):
-        raw = (
-            '{"skip": false, "text": "hi", "generate_video": true, "tts_text": "hello"}'
-        )
+        raw = '{"skip": false, "text": "hi", "generate_video": true, "tts_text": "hello"}'
         result = _parse_decision(raw)
         self.assertFalse(result["skip"])
         self.assertEqual(result["text"], "hi")
@@ -258,9 +258,7 @@ class TestMentionDetection(unittest.TestCase):
         """@bots role mention should trigger _decide_and_act."""
         msg = self._make_message(mentions_bot=False, role_mention_id=55555)
         self.cog._check_rate_limits = MagicMock(return_value=True)
-        self.cog._decide_and_act = AsyncMock(
-            return_value={"skipped": False, "message_id": 111}
-        )
+        self.cog._decide_and_act = AsyncMock(return_value={"skipped": False, "message_id": 111})
         # Provide async iterator for channel history
         msg.channel.history = MagicMock(return_value=_empty_async_iter())
         msg.guild = MagicMock()
@@ -287,9 +285,7 @@ class TestMentionDetection(unittest.TestCase):
         """Role mentions should NOT publish human_mention_response to coordinator."""
         msg = self._make_message(mentions_bot=False, role_mention_id=55555)
         self.cog._check_rate_limits = MagicMock(return_value=True)
-        self.cog._decide_and_act = AsyncMock(
-            return_value={"skipped": False, "message_id": 111}
-        )
+        self.cog._decide_and_act = AsyncMock(return_value={"skipped": False, "message_id": 111})
         self.cog._redis = AsyncMock()
         msg.channel.history = MagicMock(return_value=_empty_async_iter())
         msg.guild = MagicMock()
@@ -401,9 +397,7 @@ class TestDecideAndAct(unittest.TestCase):
 
         loop = asyncio.new_event_loop()
         result = loop.run_until_complete(
-            self.cog._decide_and_act(
-                channel, "context", "topic", "ai-general", force_respond=True
-            )
+            self.cog._decide_and_act(channel, "context", "topic", "ai-general", force_respond=True)
         )
         loop.close()
 
@@ -429,9 +423,7 @@ class TestDecideAndAct(unittest.TestCase):
 
         loop = asyncio.new_event_loop()
         result = loop.run_until_complete(
-            self.cog._decide_and_act(
-                channel, "context", "", "ai-general", react_to_message_id=555
-            )
+            self.cog._decide_and_act(channel, "context", "", "ai-general", react_to_message_id=555)
         )
         loop.close()
 
@@ -444,7 +436,9 @@ class TestDecideAndAct(unittest.TestCase):
         )
 
     def test_image_generation(self):
-        self.cog.mock_ai_response = '{"skip": false, "text": null, "generate_image": true, "image_prompt": "a cat"}'
+        self.cog.mock_ai_response = (
+            '{"skip": false, "text": null, "generate_image": true, "image_prompt": "a cat"}'
+        )
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-memes"
@@ -495,9 +489,7 @@ class TestDecideAndAct(unittest.TestCase):
         self.assertNotIn("end_conversation", result)
 
     def test_combo_text_and_emoji(self):
-        self.cog.mock_ai_response = (
-            '{"skip": false, "text": "Nice!", "react_emoji": "👍"}'
-        )
+        self.cog.mock_ai_response = '{"skip": false, "text": "Nice!", "react_emoji": "👍"}'
         channel = MagicMock()
         channel.id = 100
         channel.name = "ai-general"
@@ -509,9 +501,7 @@ class TestDecideAndAct(unittest.TestCase):
 
         loop = asyncio.new_event_loop()
         result = loop.run_until_complete(
-            self.cog._decide_and_act(
-                channel, "context", "", "ai-general", react_to_message_id=888
-            )
+            self.cog._decide_and_act(channel, "context", "", "ai-general", react_to_message_id=888)
         )
         loop.close()
 
@@ -540,9 +530,7 @@ class TestFormatConversationHistory(unittest.TestCase):
         self.assertIn("Clod Bot: Hi there", result)
 
     def test_limits_to_context_window(self):
-        messages = [
-            {"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)
-        ]
+        messages = [{"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)]
         result = _format_conversation_history(messages)
         # No theme → full CONTEXT_WINDOW_SIZE (50)
         self.assertNotIn("bot0:", result)
@@ -550,9 +538,7 @@ class TestFormatConversationHistory(unittest.TestCase):
         self.assertIn("bot25:", result)
 
     def test_limits_to_theme_context_window(self):
-        messages = [
-            {"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(30)
-        ]
+        messages = [{"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(30)]
         # "memes" theme → 0.35 * 50 = 18
         result = _format_conversation_history(messages, theme="memes")
         self.assertNotIn("bot0:", result)
@@ -568,9 +554,7 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "chatgpt", "text": "LOL", "message_id": 124},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn(
-            "[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]", result
-        )
+        self.assertIn("[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]", result)
         self.assertIn("[msg:124] GPT Bot: LOL", result)
         # Reaction line should NOT appear as a separate entry
         self.assertNotIn("grok:", result)  # no standalone "grok:" message line
@@ -734,9 +718,11 @@ class TestListenerRetry(unittest.TestCase):
         self.cog._redis.pubsub = MagicMock(return_value=mock_pubsub)
 
         async def run():
-            with patch("agent_cogs.base.asyncio.sleep", new_callable=AsyncMock):
-                with self.assertRaises(asyncio.CancelledError):
-                    await self.cog._listen_for_instructions()
+            with (
+                patch("agent_cogs.base.asyncio.sleep", new_callable=AsyncMock),
+                self.assertRaises(asyncio.CancelledError),
+            ):
+                await self.cog._listen_for_instructions()
 
             self.assertEqual(call_count, 2)
 
@@ -782,9 +768,11 @@ class TestListenerRetry(unittest.TestCase):
             async def track_sleep(seconds):
                 sleep_values.append(seconds)
 
-            with patch("agent_cogs.base.asyncio.sleep", side_effect=track_sleep):
-                with self.assertRaises(asyncio.CancelledError):
-                    await self.cog._listen_for_instructions()
+            with (
+                patch("agent_cogs.base.asyncio.sleep", side_effect=track_sleep),
+                self.assertRaises(asyncio.CancelledError),
+            ):
+                await self.cog._listen_for_instructions()
 
             # 6 failures → sleeps of 1, 2, 4, 8, 16, 30 (capped)
             self.assertEqual(sleep_values, [1, 2, 4, 8, 16, 30])
@@ -810,25 +798,19 @@ class TestComputeTokenCost(unittest.TestCase):
     def test_cache_creation_tokens(self):
         # claude-sonnet-4-6: input=3.00, output=15.00
         # cache_creation = 2x input price = 6.00 per 1M
-        cost = _compute_token_cost(
-            "claude-sonnet-4-6", 0, 0, cache_creation_tokens=1_000_000
-        )
+        cost = _compute_token_cost("claude-sonnet-4-6", 0, 0, cache_creation_tokens=1_000_000)
         self.assertAlmostEqual(cost, 6.00)
 
     def test_cache_read_tokens(self):
         # claude-sonnet-4-6: input=3.00
         # cache_read = 0.1x input price = 0.30 per 1M
-        cost = _compute_token_cost(
-            "claude-sonnet-4-6", 0, 0, cache_read_tokens=1_000_000
-        )
+        cost = _compute_token_cost("claude-sonnet-4-6", 0, 0, cache_read_tokens=1_000_000)
         self.assertAlmostEqual(cost, 0.30)
 
     def test_reasoning_tokens_billed_at_output_rate(self):
         # grok-4.20: output=6.00 per 1M
         # reasoning tokens should add to output cost
-        cost = _compute_token_cost(
-            "grok-4.20", 0, 0, reasoning_tokens=1_000_000
-        )
+        cost = _compute_token_cost("grok-4.20", 0, 0, reasoning_tokens=1_000_000)
         self.assertAlmostEqual(cost, 6.00)
 
     def test_openai_reasoning_tokens_after_subtraction(self):
@@ -836,35 +818,29 @@ class TestComputeTokenCost(unittest.TestCase):
         # OpenAI includes reasoning in output_tokens, so the agent subtracts
         # reasoning before building AIResponse: output=800k, reasoning=200k
         # cost = (800k + 200k) * 15.00 / 1M = 15.00 (same as 1M total output)
-        cost = _compute_token_cost(
-            "gpt-5.4", 0, 800_000, reasoning_tokens=200_000
-        )
+        cost = _compute_token_cost("gpt-5.4", 0, 800_000, reasoning_tokens=200_000)
         self.assertAlmostEqual(cost, 15.00)
 
     def test_openai_cached_input_tokens(self):
         # gpt-5.4: input=2.50, output=15.00
         # 1M input tokens, 500k cached at 50% discount
         # cost = (500k * 2.50 + 500k * 1.25) / 1M = 1.25 + 0.625 = 1.875
-        cost = _compute_token_cost(
-            "gpt-5.4", 1_000_000, 0, cached_input_tokens=500_000
-        )
+        cost = _compute_token_cost("gpt-5.4", 1_000_000, 0, cached_input_tokens=500_000)
         self.assertAlmostEqual(cost, 1.875)
 
     def test_openai_all_cached(self):
         # gpt-5.4: 1M input all cached → 1M * 2.50 * 0.5 / 1M = 1.25
-        cost = _compute_token_cost(
-            "gpt-5.4", 1_000_000, 0, cached_input_tokens=1_000_000
-        )
+        cost = _compute_token_cost("gpt-5.4", 1_000_000, 0, cached_input_tokens=1_000_000)
         self.assertAlmostEqual(cost, 1.25)
 
     def test_combined_tokens(self):
         # claude-sonnet-4-6: input=3.00, output=15.00
         cost = _compute_token_cost(
             "claude-sonnet-4-6",
-            500_000,    # input: 500k * 3.00/1M = 1.50
-            200_000,    # output: 200k * 15.00/1M = 3.00
+            500_000,  # input: 500k * 3.00/1M = 1.50
+            200_000,  # output: 200k * 15.00/1M = 3.00
             cache_creation_tokens=100_000,  # 100k * 3.00 * 2 / 1M = 0.60
-            cache_read_tokens=1_000_000,    # 1M * 3.00 * 0.1 / 1M = 0.30
+            cache_read_tokens=1_000_000,  # 1M * 3.00 * 0.1 / 1M = 0.30
         )
         self.assertAlmostEqual(cost, 5.40)
 

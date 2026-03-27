@@ -10,6 +10,7 @@ import discord
 from anthropic import AsyncAnthropic
 
 from agent_config import ANTHROPIC_API_KEY
+
 from .base import AIResponse, BaseAgentCog, _download_image_bytes
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,7 @@ class AnthropicAgentCog(BaseAgentCog):
     def __init__(self, bot: discord.Bot):
         super().__init__(bot)
         if not ANTHROPIC_API_KEY:
-            logger.warning(
-                "ANTHROPIC_API_KEY not set — AnthropicAgentCog will not function"
-            )
+            logger.warning("ANTHROPIC_API_KEY not set — AnthropicAgentCog will not function")
         self._client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
     async def _call_ai(
@@ -43,14 +42,16 @@ class AnthropicAgentCog(BaseAgentCog):
                 result = await _download_image_bytes(session, url)
                 if result:
                     data, media_type = result
-                    blocks.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64.standard_b64encode(data).decode(),
-                        },
-                    })
+                    blocks.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64.standard_b64encode(data).decode(),
+                            },
+                        }
+                    )
             user_content = blocks
         else:
             user_content = user_prompt
@@ -62,7 +63,12 @@ class AnthropicAgentCog(BaseAgentCog):
             messages=[{"role": "user", "content": user_content}],
             tools=[
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
-                {"type": "web_fetch_20260309", "name": "web_fetch", "max_uses": 5, "use_cache": False},
+                {
+                    "type": "web_fetch_20260309",
+                    "name": "web_fetch",
+                    "max_uses": 5,
+                    "use_cache": False,
+                },
             ],
             thinking={"type": "adaptive"},
             output_config={"effort": "medium"},
