@@ -90,8 +90,27 @@ class GeminiAgentCog(BaseAgentCog):
             input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
             output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(response.usage_metadata, "thoughts_token_count", 0) or 0
+        text = response.text or ""
+        # Append grounding source URLs as footnotes when available
+        sources: list[tuple[str, str]] = []
+        if response.candidates:
+            meta = getattr(response.candidates[0], "grounding_metadata", None)
+            if meta:
+                for chunk in getattr(meta, "grounding_chunks", None) or []:
+                    web = getattr(chunk, "web", None)
+                    if web:
+                        uri = getattr(web, "uri", "") or ""
+                        title = getattr(web, "title", "") or ""
+                        if uri and (uri, title) not in sources:
+                            sources.append((uri, title))
+        if sources:
+            formatted: list[str] = []
+            for uri, title in sources:
+                safe = (title or "source").replace("[", r"\[").replace("]", r"\]")
+                formatted.append(f"[{safe}]({uri})")
+            text = f"{text}\n\nSources: {' · '.join(formatted)}"
         return AIResponse(
-            text=response.text or "",
+            text=text,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_tokens=thinking_tokens,

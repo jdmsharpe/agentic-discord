@@ -10,7 +10,12 @@ from openai import AsyncOpenAI
 
 from agent_config import OPENAI_API_KEY
 
-from .base import AIResponse, BaseAgentCog, _extract_responses_api_usage
+from .base import (
+    AIResponse,
+    BaseAgentCog,
+    _extract_responses_api_text_with_citations,
+    _extract_responses_api_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,7 @@ class OpenAIAgentCog(BaseAgentCog):
         if web_search_calls:
             logger.info("[chatgpt] web_search called %d time(s) this turn", web_search_calls)
         return AIResponse(
-            text=response.output_text,
+            text=_extract_responses_api_text_with_citations(response),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cached_input_tokens=cached_input_tokens,

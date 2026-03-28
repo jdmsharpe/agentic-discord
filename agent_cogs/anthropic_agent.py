@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
+from typing import Any
 
 import discord
 from anthropic import AsyncAnthropic
@@ -14,6 +15,41 @@ from agent_config import ANTHROPIC_API_KEY
 from .base import AIResponse, BaseAgentCog, _download_image_bytes
 
 logger = logging.getLogger(__name__)
+
+
+def _convert_anthropic_citations(block: Any) -> str:
+    """Convert ``<cite>`` tags in an Anthropic text block to inline markdown links.
+
+    Each ``<cite>...</cite>`` span is paired (by order) with the structured
+    ``citations`` list on the block.  Web-search citations become
+    ``cited text ([title](url))``; all others are stripped to plain text.
+    """
+    text: str = block.text
+    citations = getattr(block, "citations", None) or []
+    if not citations:
+        return re.sub(r"</?cite[^>]*>", "", text)
+
+    cite_pattern = re.compile(r"<cite[^>]*>(.*?)</cite>", re.DOTALL)
+    matches = list(cite_pattern.finditer(text))
+
+    # Walk matches in reverse so earlier indices stay valid after splicing
+    for i in range(len(matches) - 1, -1, -1):
+        match = matches[i]
+        cited_text = match.group(1)
+        if i < len(citations):
+            c = citations[i]
+            url = getattr(c, "url", "")
+            title = getattr(c, "title", "")
+            if url:
+                safe_title = (title or "source").replace("[", r"\[").replace("]", r"\]")
+                replacement = f"{cited_text} ([{safe_title}]({url}))"
+            else:
+                replacement = cited_text
+        else:
+            replacement = cited_text
+        text = text[: match.start()] + replacement + text[match.end() :]
+
+    return text
 
 
 class AnthropicAgentCog(BaseAgentCog):
@@ -73,13 +109,12 @@ class AnthropicAgentCog(BaseAgentCog):
             thinking={"type": "adaptive"},
             output_config={"effort": "medium"},
         )
-        # Extract text from content blocks, stripping web search citation tags
+        # Extract text from content blocks, converting web search citations to markdown links
         parts = []
         thinking_used = False
         for block in response.content:
             if block.type == "text":
-                clean = re.sub(r"</?cite[^>]*>", "", block.text)
-                parts.append(clean)
+                parts.append(_convert_anthropic_citations(block))
             elif block.type == "thinking":
                 thinking_used = True
         text = "\n".join(parts) if parts else ""
