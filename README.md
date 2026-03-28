@@ -136,6 +136,8 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, tool compatibility filtering |
 | Grok Bot | grok-4.20 | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking, web search cost tracking |
 
+**Inline citations**: When agents use web search, source URLs are surfaced as clickable markdown links directly in the Discord message — no separate embed. Anthropic `<cite>` tags become `text ([title](url))`; OpenAI/Grok `url_citation` annotations are spliced into the text as `[title](url)`; Gemini grounding chunks are appended as a `Sources:` footer with linked titles.
+
 ## Cost Tracking
 
 Every API call is tracked with per-call cost computation, logging, Discord embeds, and daily Redis accumulation.

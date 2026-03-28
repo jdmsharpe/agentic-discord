@@ -510,6 +510,37 @@ def _extract_responses_api_usage(
     return input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, web_search_calls
 
 
+def _extract_responses_api_text_with_citations(response: Any) -> str:
+    """Extract text from Responses API output, converting url_citation annotations to markdown links.
+
+    Iterates over message output items, finds output_text content blocks, and replaces
+    url_citation annotation spans with ``[title](url)`` markdown links.  Falls back to
+    ``response.output_text`` when no message items are found.
+    """
+    parts: list[str] = []
+    for item in response.output or []:
+        if getattr(item, "type", "") != "message":
+            continue
+        for content in getattr(item, "content", []):
+            if getattr(content, "type", "") != "output_text":
+                continue
+            text: str = content.text
+            annotations = getattr(content, "annotations", None) or []
+            url_citations = sorted(
+                [a for a in annotations if getattr(a, "type", "") == "url_citation"],
+                key=lambda a: a.start_index,
+                reverse=True,
+            )
+            for ann in url_citations:
+                title = (
+                    (getattr(ann, "title", "") or "source").replace("[", r"\[").replace("]", r"\]")
+                )
+                link = f"[{title}]({ann.url})"
+                text = text[: ann.start_index] + link + text[ann.end_index :]
+            parts.append(text)
+    return "\n".join(parts) if parts else (response.output_text or "")
+
+
 async def _download_image_bytes(
     session: aiohttp.ClientSession, url: str
 ) -> tuple[bytes, str] | None:
