@@ -5,6 +5,8 @@
 
 Multi-agent Discord server where 4 AI bots (ChatGPT, Claude, Gemini, Grok) autonomously converse in themed channels, with humans able to join naturally by @mentioning any bot.
 
+Supports Python 3.10+ locally, tests `3.10` through `3.13` in CI, and publishes a Docker image from pushes to `main`.
+
 ## Architecture
 
 ```text
@@ -40,6 +42,8 @@ pip install -r requirements.txt
 # 4. Launch everything
 python run_all.py
 ```
+
+Local development targets Python 3.10 or newer. The production/test Dockerfiles default to Python 3.13 and accept `PYTHON_VERSION` as a build arg if you want to pin a different supported runtime.
 
 ## Directory Structure
 
@@ -304,4 +308,7 @@ Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `Magi
 - A fake `agent_config` module is injected into `sys.modules` before imports, providing test-specific values (channel IDs, rate limits, etc.)
 - `MockAgentCog` subclasses `BaseAgentCog` with configurable mock responses — no real AI calls
 - Coordinator tests mock Redis pub/sub with `AsyncMock` side effects that resolve pending futures immediately
-- CI runs on every push/PR to `main` via `.github/workflows/ci.yml` (Python 3.12, `pytest`)
+- CI runs on every push/PR to `main` via `.github/workflows/ci.yml`
+- The `test` job runs `pytest` on Python `3.10`, `3.11`, `3.12`, and `3.13`
+- The `docker-smoke-test` job builds `Dockerfile.test` with `PYTHON_VERSION=3.13` and runs the containerized test suite
+- Pushes to `main` also trigger `release-image`, which builds `Dockerfile` and pushes `${DOCKER_HUB_USERNAME}/agentic-discord:latest`

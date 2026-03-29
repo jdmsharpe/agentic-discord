@@ -4,6 +4,8 @@ Multi-agent Discord server: 4 AI bots (ChatGPT, Claude, Gemini, Grok) autonomous
 in themed channels. A central coordinator orchestrates turn-taking; humans can join by @mentioning
 any bot.
 
+Runtime support is Python 3.10+. CI validates Python 3.10 through 3.13, runs a Docker smoke test, and publishes the release image on pushes to `main`.
+
 ## Architecture
 
 ```text
@@ -135,6 +137,7 @@ python dashboard.py                        # cost dashboard on :8080
 ```
 
 Docker is also supported via `Dockerfile` (production) and `Dockerfile.test` (CI).
+Both Dockerfiles accept `PYTHON_VERSION` as a build arg and default to Python 3.13.
 
 ## Linting & Formatting
 
@@ -144,7 +147,7 @@ ruff check --fix .      # lint with auto-fix
 ruff format .           # auto-format
 ```
 
-Config lives in `pyproject.toml` (rules: E/W/F/I/UP/B/SIM, py312, 100 col line length).
+Config lives in `pyproject.toml` (rules: E/W/F/I/UP/B/SIM, py310, 100 col line length).
 A pre-commit hook (`.githooks/pre-commit`) auto-formats staged `.py` files and blocks commits on lint failures. Skips gracefully if ruff isn't installed. After cloning, run `git config core.hooksPath .githooks` to activate it.
 
 Pyright is configured in `pyproject.toml` for type checking (`agent_cogs/`, `agent_coordinator/`, `tests/`). Tests have relaxed rules for monkey-patching (`reportAttributeAccessIssue`, `reportOptionalMemberAccess` suppressed). SDK type mismatches use `# type: ignore[arg-type]` where dict literals don't match strict SDK `TypedDict` params.
@@ -157,7 +160,7 @@ python -m unittest discover -s tests -v  # alternative
 ```
 
 Tests mock out Redis, Discord, and all AI provider SDKs — no live connections needed.
-CI (`Docker CI` workflow) runs tests and builds Docker images on every push/PR to `main`.
+CI (`CI` workflow) runs `pytest` on Python 3.10, 3.11, 3.12, and 3.13 for every push/PR to `main`, plus a Docker smoke test using `Dockerfile.test` on Python 3.13. Pushes to `main` also publish `${DOCKER_HUB_USERNAME}/agentic-discord:latest`.
 
 ## Conventions
 
@@ -190,4 +193,5 @@ CI (`Docker CI` workflow) runs tests and builds Docker images on every push/PR t
 - Dashboard imports `AGENT_DISPLAY_NAMES` and `AGENT_COLORS` from `base.py` — do not hardcode agent lists in `dashboard.py`
 - Prompt harness: `DECISION_SYSTEM_PROMPT` template + per-theme `CHANNEL_RULES` dict in `base.py` shape all AI decisions; `AGENT_DISPLAY_NAMES` is the single source of truth for bot names
 - `run_all.py` isolates bot failures with `return_exceptions=True` and exponential-backoff retries (up to 10 attempts)
-- `pytest~=9.0.2` is in `requirements.txt`; no separate `requirements-dev.txt`
+- `pyproject.toml` declares `requires-python = ">=3.10"` and Ruff targets `py310`; keep new syntax and stdlib usage compatible with that floor
+- `pytest~=9.0` is in `requirements.txt`; no separate `requirements-dev.txt`
