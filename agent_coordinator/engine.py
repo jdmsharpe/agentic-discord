@@ -379,7 +379,7 @@ class ConversationEngine:
             )
             self._consecutive_timeouts = 0
             return result
-        except TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             self._consecutive_timeouts += 1
             logger.warning(
                 "Agent %s timed out for instruction %s (consecutive: %d/%d)",
