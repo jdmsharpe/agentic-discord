@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root="$(git rev-parse --show-toplevel)"
+ruff_bin=""
+
+if [[ -x "$repo_root/.venv/bin/ruff" ]]; then
+    ruff_bin="$repo_root/.venv/bin/ruff"
+elif command -v ruff &>/dev/null; then
+    ruff_bin="$(command -v ruff)"
+fi
+
 # ── Python (ruff) ────────────────────────────────────────────────────
-if command -v ruff &>/dev/null; then
+if [[ -n "$ruff_bin" ]]; then
     py_files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
 
     if [[ -n "$py_files" ]]; then
         # Auto-format staged files and re-stage
-        echo "$py_files" | xargs ruff format
+        echo "$py_files" | xargs "$ruff_bin" format
         echo "$py_files" | xargs git add
 
         # Lint check (strict — blocks commit on failure)
-        echo "$py_files" | xargs ruff check
+        echo "$py_files" | xargs "$ruff_bin" check
     fi
 else
     echo "⚠  ruff not found — skipping Python format/lint"
