@@ -9,16 +9,17 @@ Uses a concrete mock subclass of BaseAgentCog to test shared behavior:
 """
 
 import asyncio
+import importlib
 import json
 
 # Patch agent_config before importing base
 import sys
 import time
 import types as stdlib_types
-import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
+import pytest
 
 # Create a fake agent_config module with test values
 fake_config = stdlib_types.ModuleType("agent_config")
@@ -36,6 +37,8 @@ fake_config.CHANNEL_THEMES = {100: "debate", 200: "memes"}
 fake_config.BOTS_ROLE_ID = 55555
 fake_config.REDIS_URL = ""
 fake_config.SHOW_COST_EMBEDS = True
+fake_config.ANTHROPIC_API_KEY = ""
+fake_config.GEMINI_API_KEY = ""
 
 
 def _fake_get_context_window(theme=None):
@@ -55,6 +58,7 @@ from agent_cogs.base import (  # noqa: E402
     AIResponse,
     BaseAgentCog,
     _compute_token_cost,
+    _compute_tool_cost,
     _format_conversation_history,
     _parse_decision,
     format_api_error,
@@ -105,50 +109,50 @@ class MockAgentCog(BaseAgentCog):
 # ---------------------------------------------------------------------------
 
 
-class TestParseDecision(unittest.TestCase):
+class TestParseDecision:
     def test_valid_json(self):
         raw = '{"skip": false, "text": "Hi there", "generate_image": false}'
         result = _parse_decision(raw)
-        self.assertFalse(result["skip"])
-        self.assertEqual(result["text"], "Hi there")
+        assert not result["skip"]
+        assert result["text"] == "Hi there"
 
     def test_skip_true(self):
         raw = '{"skip": true}'
         result = _parse_decision(raw)
-        self.assertTrue(result["skip"])
+        assert result["skip"]
 
     def test_malformed_json_defaults_to_skip(self):
         raw = "not valid json at all"
         result = _parse_decision(raw)
-        self.assertTrue(result["skip"])
+        assert result["skip"]
 
     def test_markdown_fenced_json(self):
         raw = '```json\n{"skip": false, "text": "fenced"}\n```'
         result = _parse_decision(raw)
-        self.assertFalse(result["skip"])
-        self.assertEqual(result["text"], "fenced")
+        assert not result["skip"]
+        assert result["text"] == "fenced"
 
     def test_unknown_fields_ignored(self):
         raw = '{"skip": false, "text": "hi", "generate_video": true, "tts_text": "hello"}'
         result = _parse_decision(raw)
-        self.assertFalse(result["skip"])
-        self.assertEqual(result["text"], "hi")
+        assert not result["skip"]
+        assert result["text"] == "hi"
         # Unknown fields are present in the dict but harmless
-        self.assertTrue(result.get("generate_video"))
+        assert result.get("generate_video")
 
     def test_empty_string(self):
         result = _parse_decision("")
-        self.assertTrue(result["skip"])
+        assert result["skip"]
 
     def test_non_dict_json(self):
         result = _parse_decision("[1, 2, 3]")
-        self.assertTrue(result["skip"])
+        assert result["skip"]
 
     def test_null_text_field(self):
         raw = '{"skip": false, "text": null, "react_emoji": "😂"}'
         result = _parse_decision(raw)
-        self.assertIsNone(result["text"])
-        self.assertEqual(result["react_emoji"], "😂")
+        assert result["text"] is None
+        assert result["react_emoji"] == "😂"
 
 
 # ---------------------------------------------------------------------------
@@ -156,37 +160,183 @@ class TestParseDecision(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestRateLimiting(unittest.TestCase):
-    def setUp(self):
+class TestRateLimiting:
+    def setup_method(self, _method=None):
         self.cog = MockAgentCog()
 
     def test_first_request_allowed(self):
-        self.assertTrue(self.cog._check_rate_limits(100))
+        assert self.cog._check_rate_limits(100)
 
     def test_cooldown_blocks_second_request(self):
         self.cog._record_response(100)
-        self.assertFalse(self.cog._check_rate_limits(100))
+        assert not self.cog._check_rate_limits(100)
 
     def test_different_channel_not_affected(self):
         self.cog._record_response(100)
-        self.assertTrue(self.cog._check_rate_limits(200))
+        assert self.cog._check_rate_limits(200)
 
     def test_daily_cap_enforced(self):
         self.cog._daily_reset_date = time.strftime("%Y-%m-%d")
         self.cog._daily_count = 5
-        self.assertFalse(self.cog._check_rate_limits(100))
+        assert not self.cog._check_rate_limits(100)
 
     def test_daily_cap_resets_on_new_day(self):
         self.cog._daily_count = 5
         self.cog._daily_reset_date = "2020-01-01"  # Force stale date
-        self.assertTrue(self.cog._check_rate_limits(100))
-        self.assertEqual(self.cog._daily_count, 0)
+        assert self.cog._check_rate_limits(100)
+        assert self.cog._daily_count == 0
 
     def test_cooldown_expires(self):
         self.cog._record_response(100)
         # Manually backdate the last response time
         self.cog._last_response_time[100] = time.time() - 120
-        self.assertTrue(self.cog._check_rate_limits(100))
+        assert self.cog._check_rate_limits(100)
+
+
+class TestHttpSession:
+    def setup_method(self, _method=None):
+        self.cog = MockAgentCog()
+
+    def teardown_method(self, _method=None):
+        if self.cog._http_session and not self.cog._http_session.closed:
+            asyncio.run(self.cog._http_session.close())
+
+    def test_reuses_shared_session_with_explicit_config(self):
+        async def run():
+            session1 = await self.cog.get_http_session()
+            session2 = await self.cog.get_http_session()
+
+            assert session1 is session2
+            assert session1.timeout.total == 30
+            assert session1.timeout.connect == 10
+            assert session1.timeout.sock_connect == 10
+            assert session1.timeout.sock_read == 30
+            assert session1.connector.limit == 50
+            assert session1.connector.limit_per_host == 10
+
+        asyncio.run(run())
+
+    def test_creates_new_session_after_close(self):
+        async def run():
+            session1 = await self.cog.get_http_session()
+            await session1.close()
+
+            session2 = await self.cog.get_http_session()
+
+            assert session1 is not session2
+            await session2.close()
+
+        asyncio.run(run())
+
+
+def _load_gemini_helpers():
+    fake_google = stdlib_types.ModuleType("google")
+    fake_genai = stdlib_types.ModuleType("google.genai")
+    fake_types = stdlib_types.ModuleType("google.genai.types")
+    fake_google.genai = fake_genai
+    fake_genai.types = fake_types
+
+    with patch.dict(
+        sys.modules,
+        {
+            "agent_config": fake_config,
+            "google": fake_google,
+            "google.genai": fake_genai,
+            "google.genai.types": fake_types,
+        },
+    ):
+        sys.modules.pop("agent_cogs.gemini_agent", None)
+        module = importlib.import_module("agent_cogs.gemini_agent")
+
+    return module._extract_gemini_grounding_metadata, module._format_gemini_grounding_footer
+
+
+def _load_anthropic_helpers():
+    with patch.dict(sys.modules, {"agent_config": fake_config}):
+        sys.modules.pop("agent_cogs.anthropic_agent", None)
+        module = importlib.import_module("agent_cogs.anthropic_agent")
+
+    return module._extract_anthropic_web_search_calls
+
+
+class TestGeminiGroundingHelpers:
+    def test_extracts_grounding_queries_and_sources(self):
+        extract_grounding, _ = _load_gemini_helpers()
+        response = stdlib_types.SimpleNamespace(
+            candidates=[
+                stdlib_types.SimpleNamespace(
+                    grounding_metadata=stdlib_types.SimpleNamespace(
+                        web_search_queries=["latest AI chips", " earnings outlook "],
+                        search_entry_point=stdlib_types.SimpleNamespace(
+                            rendered_content="<div>Rendered search card</div>"
+                        ),
+                        grounding_chunks=[
+                            stdlib_types.SimpleNamespace(
+                                web=stdlib_types.SimpleNamespace(
+                                    uri="https://example.com/1",
+                                    title="Source One",
+                                )
+                            ),
+                            stdlib_types.SimpleNamespace(
+                                web=stdlib_types.SimpleNamespace(
+                                    uri="https://example.com/1",
+                                    title="Source One",
+                                )
+                            ),
+                            stdlib_types.SimpleNamespace(
+                                web=stdlib_types.SimpleNamespace(
+                                    uri="https://example.com/2",
+                                    title="",
+                                )
+                            ),
+                            stdlib_types.SimpleNamespace(web=None),
+                        ],
+                    )
+                )
+            ]
+        )
+
+        metadata = extract_grounding(response)
+
+        assert metadata.search_queries == ("latest AI chips", "earnings outlook")
+        assert metadata.rendered_content == "<div>Rendered search card</div>"
+        assert metadata.sources == (
+            ("https://example.com/1", "Source One"),
+            ("https://example.com/2", ""),
+        )
+
+    def test_formats_grounding_footer(self):
+        _, format_footer = _load_gemini_helpers()
+        metadata = stdlib_types.SimpleNamespace(
+            sources=(
+                ("https://example.com/1", "Source One"),
+                ("https://example.com/2", ""),
+            )
+        )
+
+        footer = format_footer(metadata)
+
+        assert "[Source One](https://example.com/1)" in footer
+        assert "[source](https://example.com/2)" in footer
+        assert footer.startswith("Sources: ")
+
+
+class TestAnthropicToolUsageHelpers:
+    def test_extracts_web_search_requests(self):
+        extract_web_search_calls = _load_anthropic_helpers()
+        response = stdlib_types.SimpleNamespace(
+            usage=stdlib_types.SimpleNamespace(
+                server_tool_use=stdlib_types.SimpleNamespace(web_search_requests=3)
+            )
+        )
+
+        assert extract_web_search_calls(response) == 3
+
+    def test_missing_server_tool_usage_defaults_to_zero(self):
+        extract_web_search_calls = _load_anthropic_helpers()
+        response = stdlib_types.SimpleNamespace(usage=stdlib_types.SimpleNamespace())
+
+        assert extract_web_search_calls(response) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +344,8 @@ class TestRateLimiting(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestMentionDetection(unittest.TestCase):
-    def setUp(self):
+class TestMentionDetection:
+    def setup_method(self, _method=None):
         self.cog = MockAgentCog()
 
     def _make_message(
@@ -270,7 +420,7 @@ class TestMentionDetection(unittest.TestCase):
         self.cog._decide_and_act.assert_called_once()
         # force_respond should be True
         _, kwargs = self.cog._decide_and_act.call_args
-        self.assertTrue(kwargs.get("force_respond"))
+        assert kwargs.get("force_respond")
 
     def test_role_mention_wrong_id_ignored(self):
         """A role mention with a different ID than BOTS_ROLE_ID is ignored."""
@@ -302,8 +452,8 @@ class TestMentionDetection(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestActionExecution(unittest.TestCase):
-    def setUp(self):
+class TestActionExecution:
+    def setup_method(self, _method=None):
         self.cog = MockAgentCog()
 
     def test_send_text(self):
@@ -317,7 +467,7 @@ class TestActionExecution(unittest.TestCase):
         loop.close()
 
         channel.send.assert_called_once_with("hello", embed=None)
-        self.assertEqual(result.id, 111)
+        assert result.id == 111
 
     def test_send_text_truncates_long_messages(self):
         channel = MagicMock()
@@ -329,8 +479,8 @@ class TestActionExecution(unittest.TestCase):
         loop.close()
 
         sent_text = channel.send.call_args[0][0]
-        self.assertLessEqual(len(sent_text), 2000)
-        self.assertTrue(sent_text.endswith("..."))
+        assert len(sent_text) <= 2000
+        assert sent_text.endswith("...")
 
     def test_add_reaction(self):
         channel = MagicMock()
@@ -342,7 +492,7 @@ class TestActionExecution(unittest.TestCase):
         result = loop.run_until_complete(self.cog._add_reaction(channel, 12345, "😂"))
         loop.close()
 
-        self.assertTrue(result)
+        assert result
         message.add_reaction.assert_called_once_with("😂")
 
 
@@ -351,8 +501,8 @@ class TestActionExecution(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestDecideAndAct(unittest.TestCase):
-    def setUp(self):
+class TestDecideAndAct:
+    def setup_method(self, _method=None):
         self.cog = MockAgentCog()
 
     def test_text_response(self):
@@ -369,9 +519,9 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertFalse(result["skipped"])
-        self.assertEqual(result["text"], "Hello world!")
-        self.assertEqual(result["message_id"], 333)
+        assert not result["skipped"]
+        assert result["text"] == "Hello world!"
+        assert result["message_id"] == 333
 
     def test_skip_decision(self):
         self.cog.mock_ai_response = '{"skip": true}'
@@ -385,7 +535,7 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertTrue(result["skipped"])
+        assert result["skipped"]
 
     def test_force_respond_overrides_skip(self):
         self.cog.mock_ai_response = '{"skip": true, "text": "Forced response"}'
@@ -402,8 +552,8 @@ class TestDecideAndAct(unittest.TestCase):
         loop.close()
 
         # force_respond=True means skip is ignored, text should be sent
-        self.assertFalse(result["skipped"])
-        self.assertEqual(result["text"], "Forced response")
+        assert not result["skipped"]
+        assert result["text"] == "Forced response"
 
     def test_emoji_reaction(self):
         self.cog.mock_ai_response = '{"skip": false, "text": null, "react_emoji": "🔥"}'
@@ -427,7 +577,7 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertEqual(result["emoji_reacted"], "🔥")
+        assert result["emoji_reacted"] == "🔥"
         # Verify emoji counter was incremented via pipeline
         mock_pipe.hincrby.assert_any_call(
             f"agent:{self.cog.agent_redis_name}:cost:{time.strftime('%Y-%m-%d')}",
@@ -451,7 +601,7 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertTrue(result.get("image_sent"))
+        assert result.get("image_sent")
 
     def test_end_conversation_passed_through(self):
         self.cog.mock_ai_response = (
@@ -469,8 +619,8 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertTrue(result.get("end_conversation"))
-        self.assertFalse(result["skipped"])
+        assert result.get("end_conversation")
+        assert not result["skipped"]
 
     def test_no_end_conversation_by_default(self):
         self.cog.mock_ai_response = '{"skip": false, "text": "Hello!"}'
@@ -486,7 +636,7 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertNotIn("end_conversation", result)
+        assert "end_conversation" not in result
 
     def test_combo_text_and_emoji(self):
         self.cog.mock_ai_response = '{"skip": false, "text": "Nice!", "react_emoji": "👍"}'
@@ -505,9 +655,9 @@ class TestDecideAndAct(unittest.TestCase):
         )
         loop.close()
 
-        self.assertEqual(result["text"], "Nice!")
-        self.assertEqual(result["emoji_reacted"], "👍")
-        self.assertFalse(result["skipped"])
+        assert result["text"] == "Nice!"
+        assert result["emoji_reacted"] == "👍"
+        assert not result["skipped"]
 
 
 # ---------------------------------------------------------------------------
@@ -515,10 +665,10 @@ class TestDecideAndAct(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestFormatConversationHistory(unittest.TestCase):
+class TestFormatConversationHistory:
     def test_empty_history(self):
         result = _format_conversation_history([])
-        self.assertIn("No messages yet", result)
+        assert "No messages yet" in result
 
     def test_formats_messages(self):
         messages = [
@@ -526,26 +676,26 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "claude", "text": "Hi there"},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("Grok Bot: Hello", result)
-        self.assertIn("Clod Bot: Hi there", result)
+        assert "Grok Bot: Hello" in result
+        assert "Clod Bot: Hi there" in result
 
     def test_limits_to_context_window(self):
         messages = [{"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(75)]
         result = _format_conversation_history(messages)
         # No theme → full CONTEXT_WINDOW_SIZE (50)
-        self.assertNotIn("bot0:", result)
-        self.assertIn("bot74:", result)
-        self.assertIn("bot25:", result)
+        assert "bot0:" not in result
+        assert "bot74:" in result
+        assert "bot25:" in result
 
     def test_limits_to_theme_context_window(self):
         messages = [{"agent": f"bot{i}", "text": f"msg{i}", "message_id": i} for i in range(30)]
         # "memes" theme → 0.35 * 50 = 18
         result = _format_conversation_history(messages, theme="memes")
-        self.assertNotIn("bot0:", result)
-        self.assertIn("bot29:", result)
-        self.assertIn("bot12:", result)
+        assert "bot0:" not in result
+        assert "bot29:" in result
+        assert "bot12:" in result
         # bot11 should be outside the 18-message window
-        self.assertNotIn("bot11:", result)
+        assert "bot11:" not in result
 
     def test_reactions_merged_inline(self):
         messages = [
@@ -554,11 +704,11 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "chatgpt", "text": "LOL", "message_id": 124},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]", result)
-        self.assertIn("[msg:124] GPT Bot: LOL", result)
+        assert "[msg:123] Clod Bot: Something edgy  [reactions: 💀 (Grok Bot)]" in result
+        assert "[msg:124] GPT Bot: LOL" in result
         # Reaction line should NOT appear as a separate entry
-        self.assertNotIn("grok:", result)  # no standalone "grok:" message line
-        self.assertNotIn("[reacted", result)
+        assert "grok:" not in result
+        assert "[reacted" not in result
 
     def test_multiple_reactions_on_same_message(self):
         messages = [
@@ -567,9 +717,9 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "gemini", "text": "[reacted 💯 to msg:200]", "message_id": None},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("🔥 (Grok Bot)", result)
-        self.assertIn("💯 (Google Bot)", result)
-        self.assertNotIn("[reacted", result)
+        assert "🔥 (Grok Bot)" in result
+        assert "💯 (Google Bot)" in result
+        assert "[reacted" not in result
 
     def test_reaction_to_unknown_target_dropped(self):
         messages = [
@@ -577,8 +727,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "claude", "text": "Hello", "message_id": 100},
         ]
         result = _format_conversation_history(messages)
-        self.assertIn("[msg:100] Clod Bot: Hello", result)
-        self.assertNotIn("💀", result)
+        assert "[msg:100] Clod Bot: Hello" in result
+        assert "💀" not in result
 
     def test_reaction_with_unknown_id_skipped(self):
         messages = [
@@ -586,8 +736,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             {"agent": "claude", "text": "Hello", "message_id": 100},
         ]
         result = _format_conversation_history(messages)
-        self.assertNotIn("💀", result)
-        self.assertNotIn("[reacted", result)
+        assert "💀" not in result
+        assert "[reacted" not in result
 
     def test_image_entries_pass_through(self):
         messages = [
@@ -598,8 +748,8 @@ class TestFormatConversationHistory(unittest.TestCase):
             },
         ]
         result = _format_conversation_history(messages)
-        self.assertIn('[posted image: "cat"', result)
-        self.assertIn("https://cdn.example.com/cat.png", result)
+        assert '[posted image: "cat"' in result
+        assert "https://cdn.example.com/cat.png" in result
 
 
 # ---------------------------------------------------------------------------
@@ -607,8 +757,8 @@ class TestFormatConversationHistory(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestHandleInstruction(unittest.TestCase):
-    def setUp(self):
+class TestHandleInstruction:
+    def setup_method(self, _method=None):
         self.cog = MockAgentCog()
         self.cog.mock_ai_response = '{"skip": false, "text": "Coordinator response"}'
         self.cog._redis = MagicMock()
@@ -641,8 +791,8 @@ class TestHandleInstruction(unittest.TestCase):
         self.cog._redis.publish.assert_called_once()
         call_args = self.cog._redis.publish.call_args
         result_payload = json.loads(call_args[0][1])
-        self.assertEqual(result_payload["instruction_id"], "test-uuid")
-        self.assertFalse(result_payload["skipped"])
+        assert result_payload["instruction_id"] == "test-uuid"
+        assert not result_payload["skipped"]
 
     def test_ignores_unknown_action(self):
         instruction = {
@@ -682,8 +832,8 @@ class TestHandleInstruction(unittest.TestCase):
 
         call_args = self.cog._redis.publish.call_args
         result_payload = json.loads(call_args[0][1])
-        self.assertTrue(result_payload["skipped"])
-        self.assertEqual(result_payload["reason"], "rate_limited")
+        assert result_payload["skipped"]
+        assert result_payload["reason"] == "rate_limited"
 
 
 # ---------------------------------------------------------------------------
@@ -691,8 +841,8 @@ class TestHandleInstruction(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestListenerRetry(unittest.TestCase):
-    def setUp(self):
+class TestListenerRetry:
+    def setup_method(self, _method=None):
         self.cog = MockAgentCog()
         self.cog._redis = MagicMock()
 
@@ -720,11 +870,11 @@ class TestListenerRetry(unittest.TestCase):
         async def run():
             with (
                 patch("agent_cogs.base.asyncio.sleep", new_callable=AsyncMock),
-                self.assertRaises(asyncio.CancelledError),
+                pytest.raises(asyncio.CancelledError),
             ):
                 await self.cog._listen_for_instructions()
 
-            self.assertEqual(call_count, 2)
+            assert call_count == 2
 
         asyncio.run(run())
 
@@ -736,7 +886,7 @@ class TestListenerRetry(unittest.TestCase):
         self.cog._redis.pubsub = MagicMock(return_value=mock_pubsub)
 
         async def run():
-            with self.assertRaises(asyncio.CancelledError):
+            with pytest.raises(asyncio.CancelledError):
                 await self.cog._listen_for_instructions()
 
         asyncio.run(run())
@@ -770,12 +920,12 @@ class TestListenerRetry(unittest.TestCase):
 
             with (
                 patch("agent_cogs.base.asyncio.sleep", side_effect=track_sleep),
-                self.assertRaises(asyncio.CancelledError),
+                pytest.raises(asyncio.CancelledError),
             ):
                 await self.cog._listen_for_instructions()
 
             # 6 failures → sleeps of 1, 2, 4, 8, 16, 30 (capped)
-            self.assertEqual(sleep_values, [1, 2, 4, 8, 16, 30])
+            assert sleep_values == [1, 2, 4, 8, 16, 30]
 
         asyncio.run(run())
 
@@ -785,33 +935,33 @@ class TestListenerRetry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestComputeTokenCost(unittest.TestCase):
+class TestComputeTokenCost:
     def test_basic_cost(self):
         # gpt-5.4: input=2.50, output=15.00 per 1M tokens
         cost = _compute_token_cost("gpt-5.4", 1_000_000, 1_000_000)
-        self.assertAlmostEqual(cost, 17.50)
+        assert cost == pytest.approx(17.50)
 
     def test_unknown_model_returns_zero(self):
         cost = _compute_token_cost("unknown-model", 1000, 500)
-        self.assertAlmostEqual(cost, 0.0)
+        assert cost == pytest.approx(0.0)
 
     def test_cache_creation_tokens(self):
         # claude-sonnet-4-6: input=3.00, output=15.00
         # cache_creation = 2x input price = 6.00 per 1M
         cost = _compute_token_cost("claude-sonnet-4-6", 0, 0, cache_creation_tokens=1_000_000)
-        self.assertAlmostEqual(cost, 6.00)
+        assert cost == pytest.approx(6.00)
 
     def test_cache_read_tokens(self):
         # claude-sonnet-4-6: input=3.00
         # cache_read = 0.1x input price = 0.30 per 1M
         cost = _compute_token_cost("claude-sonnet-4-6", 0, 0, cache_read_tokens=1_000_000)
-        self.assertAlmostEqual(cost, 0.30)
+        assert cost == pytest.approx(0.30)
 
     def test_reasoning_tokens_billed_at_output_rate(self):
         # grok-4.20: output=6.00 per 1M
         # reasoning tokens should add to output cost
         cost = _compute_token_cost("grok-4.20", 0, 0, reasoning_tokens=1_000_000)
-        self.assertAlmostEqual(cost, 6.00)
+        assert cost == pytest.approx(6.00)
 
     def test_openai_reasoning_tokens_after_subtraction(self):
         # gpt-5.4: output=15.00
@@ -819,19 +969,19 @@ class TestComputeTokenCost(unittest.TestCase):
         # reasoning before building AIResponse: output=800k, reasoning=200k
         # cost = (800k + 200k) * 15.00 / 1M = 15.00 (same as 1M total output)
         cost = _compute_token_cost("gpt-5.4", 0, 800_000, reasoning_tokens=200_000)
-        self.assertAlmostEqual(cost, 15.00)
+        assert cost == pytest.approx(15.00)
 
     def test_openai_cached_input_tokens(self):
         # gpt-5.4: input=2.50, output=15.00
         # 1M input tokens, 500k cached at 50% discount
         # cost = (500k * 2.50 + 500k * 1.25) / 1M = 1.25 + 0.625 = 1.875
         cost = _compute_token_cost("gpt-5.4", 1_000_000, 0, cached_input_tokens=500_000)
-        self.assertAlmostEqual(cost, 1.875)
+        assert cost == pytest.approx(1.875)
 
     def test_openai_all_cached(self):
         # gpt-5.4: 1M input all cached → 1M * 2.50 * 0.5 / 1M = 1.25
         cost = _compute_token_cost("gpt-5.4", 1_000_000, 0, cached_input_tokens=1_000_000)
-        self.assertAlmostEqual(cost, 1.25)
+        assert cost == pytest.approx(1.25)
 
     def test_combined_tokens(self):
         # claude-sonnet-4-6: input=3.00, output=15.00
@@ -842,7 +992,20 @@ class TestComputeTokenCost(unittest.TestCase):
             cache_creation_tokens=100_000,  # 100k * 3.00 * 2 / 1M = 0.60
             cache_read_tokens=1_000_000,  # 1M * 3.00 * 0.1 / 1M = 0.30
         )
-        self.assertAlmostEqual(cost, 5.40)
+        assert cost == pytest.approx(5.40)
+
+    def test_web_search_calls_only_billed_for_priced_models(self):
+        assert _compute_tool_cost("gpt-5.4", web_search_calls=2) == pytest.approx(0.02)
+        assert _compute_tool_cost("grok-4.20", web_search_calls=2) == pytest.approx(0.02)
+        assert _compute_tool_cost("claude-sonnet-4-6", web_search_calls=2) == pytest.approx(0.0)
+
+    def test_maps_grounding_calls_billed_separately(self):
+        cost = _compute_tool_cost(
+            "gemini-3.1-pro-preview",
+            web_search_calls=3,
+            maps_grounding_calls=2,
+        )
+        assert cost == pytest.approx(2 * GEMINI_MAPS_GROUNDING_COST_PER_CALL)
 
 
 # ---------------------------------------------------------------------------
@@ -850,18 +1013,18 @@ class TestComputeTokenCost(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestAIResponse(unittest.TestCase):
+class TestAIResponse:
     def test_defaults(self):
         r = AIResponse()
-        self.assertEqual(r.text, "")
-        self.assertEqual(r.input_tokens, 0)
-        self.assertEqual(r.output_tokens, 0)
-        self.assertEqual(r.cache_creation_tokens, 0)
-        self.assertEqual(r.cache_read_tokens, 0)
-        self.assertEqual(r.cached_input_tokens, 0)
-        self.assertEqual(r.reasoning_tokens, 0)
-        self.assertEqual(r.web_search_calls, 0)
-        self.assertEqual(r.maps_grounding_calls, 0)
+        assert r.text == ""
+        assert r.input_tokens == 0
+        assert r.output_tokens == 0
+        assert r.cache_creation_tokens == 0
+        assert r.cache_read_tokens == 0
+        assert r.cached_input_tokens == 0
+        assert r.reasoning_tokens == 0
+        assert r.web_search_calls == 0
+        assert r.maps_grounding_calls == 0
 
     def test_provider_specific_fields(self):
         r = AIResponse(
@@ -874,19 +1037,19 @@ class TestAIResponse(unittest.TestCase):
             web_search_calls=2,
             maps_grounding_calls=1,
         )
-        self.assertEqual(r.cache_creation_tokens, 10)
-        self.assertEqual(r.cache_read_tokens, 80)
-        self.assertEqual(r.reasoning_tokens, 200)
-        self.assertEqual(r.web_search_calls, 2)
-        self.assertEqual(r.maps_grounding_calls, 1)
+        assert r.cache_creation_tokens == 10
+        assert r.cache_read_tokens == 80
+        assert r.reasoning_tokens == 200
+        assert r.web_search_calls == 2
+        assert r.maps_grounding_calls == 1
 
     def test_openai_web_search_cost_per_call(self):
         # Each web_search call costs $0.01 flat; applied on top of token cost
-        self.assertAlmostEqual(OPENAI_WEB_SEARCH_COST_PER_CALL, 0.01)
+        assert pytest.approx(0.01) == OPENAI_WEB_SEARCH_COST_PER_CALL
 
     def test_gemini_maps_grounding_cost_per_call(self):
         # Each Maps-grounded prompt costs $0.025 flat
-        self.assertAlmostEqual(GEMINI_MAPS_GROUNDING_COST_PER_CALL, 0.025)
+        assert pytest.approx(0.025) == GEMINI_MAPS_GROUNDING_COST_PER_CALL
 
 
 # ---------------------------------------------------------------------------
@@ -894,32 +1057,28 @@ class TestAIResponse(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestFormatApiError(unittest.TestCase):
+class TestFormatApiError:
     def test_basic_exception(self):
         err = Exception("Something went wrong")
         result = format_api_error(err)
-        self.assertIn("Something went wrong", result)
+        assert "Something went wrong" in result
 
     def test_with_status_code(self):
         err = Exception("Rate limited")
         err.status_code = 429
         result = format_api_error(err)
-        self.assertIn("429", result)
-        self.assertIn("Rate limited", result)
+        assert "429" in result
+        assert "Rate limited" in result
 
     def test_with_message_attr(self):
         err = Exception()
         err.message = "Overloaded"
         result = format_api_error(err)
-        self.assertIn("Overloaded", result)
+        assert "Overloaded" in result
 
     def test_openai_body_extraction(self):
         err = Exception("API error")
         err.body = {"error": {"type": "invalid_request", "code": "model_not_found"}}
         result = format_api_error(err)
-        self.assertIn("invalid_request", result)
-        self.assertIn("model_not_found", result)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "invalid_request" in result
+        assert "model_not_found" in result

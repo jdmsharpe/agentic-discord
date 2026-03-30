@@ -62,7 +62,7 @@ class AIResponse:
     cached_input_tokens: int = 0  # OpenAI: subset of input_tokens cached at 50% input price
     reasoning_tokens: int = 0  # OpenAI/Grok/Gemini: reasoning/thinking tokens (output price)
     thinking_used: bool = False  # Anthropic: whether thinking blocks were present
-    web_search_calls: int = 0  # OpenAI: number of web_search_call items ($0.01/call)
+    web_search_calls: int = 0  # Provider-reported web search requests/calls for embeds + metrics
     maps_grounding_calls: int = 0  # Gemini: number of Maps-grounded prompts ($0.025/call)
 
 
@@ -95,6 +95,7 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
 OPENAI_WEB_SEARCH_COST_PER_CALL: float = 0.01  # $10 / 1000 searches
 # Gemini: Grounding with Google Maps is billed per grounded prompt
 GEMINI_MAPS_GROUNDING_COST_PER_CALL: float = 0.025  # $25 / 1000 grounded prompts
+_WEB_SEARCH_BILLED_MODELS: frozenset[str] = frozenset({"gpt-5.4", "grok-4.20"})
 
 # Embed accent colors per agent
 AGENT_COLORS: dict[str, int] = {
@@ -151,6 +152,22 @@ def _compute_image_cost(model: str) -> float:
     if not pricing or "per_image" not in pricing:
         return 0.0
     return pricing["per_image"]
+
+
+def _compute_tool_cost(
+    model: str,
+    web_search_calls: int = 0,
+    maps_grounding_calls: int = 0,
+) -> float:
+    """Compute flat per-call tool costs for models that publish separate tool billing.
+
+    `web_search_calls` is tracked across providers for observability, but only models in
+    `_WEB_SEARCH_BILLED_MODELS` currently contribute direct per-call cost.
+    """
+    cost = maps_grounding_calls * GEMINI_MAPS_GROUNDING_COST_PER_CALL
+    if model in _WEB_SEARCH_BILLED_MODELS:
+        cost += web_search_calls * OPENAI_WEB_SEARCH_COST_PER_CALL
+    return cost
 
 
 # Per-theme channel rules — single source of truth for theme context.
@@ -299,6 +316,12 @@ def _relative_time(dt: datetime.datetime) -> str:
 
 _NO_MESSAGES_SENTINEL = "(No messages yet — you're starting the conversation.)"
 _COST_KEY_TTL_SECONDS = 2_592_000  # 30 days
+_HTTP_TOTAL_TIMEOUT_SECONDS = 30
+_HTTP_CONNECT_TIMEOUT_SECONDS = 10
+_HTTP_SOCK_READ_TIMEOUT_SECONDS = 30
+_HTTP_CONNECTOR_LIMIT = 50
+_HTTP_CONNECTOR_LIMIT_PER_HOST = 10
+_HTTP_DNS_CACHE_TTL_SECONDS = 300
 
 
 def _format_conversation_history(messages: list[dict[str, Any]], theme: str | None = None) -> str:
@@ -547,11 +570,15 @@ async def _download_image_bytes(
     """Download image bytes from a URL, returning (data, media_type) or None on failure."""
     try:
         async with session.get(url) as resp:
-            if resp.status == 200:
-                data = await resp.read()
-                ct = resp.content_type or "image/png"
-                media_type = ct.split(";")[0]
-                return data, media_type
+            if resp.status != 200:
+                logger.warning("Image download failed with HTTP %s: %s", resp.status, url)
+                return None
+            data = await resp.read()
+            ct = resp.content_type or "image/png"
+            media_type = ct.split(";")[0]
+            return data, media_type
+    except asyncio.TimeoutError:
+        logger.warning("Timed out downloading image: %s", url)
     except Exception:
         logger.warning("Failed to download image: %s", url)
     return None
@@ -600,7 +627,21 @@ class BaseAgentCog(commands.Cog):
     async def get_http_session(self) -> aiohttp.ClientSession:
         """Return a shared aiohttp session, creating one if needed."""
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(
+                total=_HTTP_TOTAL_TIMEOUT_SECONDS,
+                connect=_HTTP_CONNECT_TIMEOUT_SECONDS,
+                sock_connect=_HTTP_CONNECT_TIMEOUT_SECONDS,
+                sock_read=_HTTP_SOCK_READ_TIMEOUT_SECONDS,
+            )
+            connector = aiohttp.TCPConnector(
+                limit=_HTTP_CONNECTOR_LIMIT,
+                limit_per_host=_HTTP_CONNECTOR_LIMIT_PER_HOST,
+                ttl_dns_cache=_HTTP_DNS_CACHE_TTL_SECONDS,
+            )
+            self._http_session = aiohttp.ClientSession(
+                timeout=timeout,
+                connector=connector,
+            )
         return self._http_session
 
     # ------------------------------------------------------------------
@@ -1046,8 +1087,11 @@ class BaseAgentCog(commands.Cog):
             cached_input_tokens=ai_response.cached_input_tokens,
             reasoning_tokens=ai_response.reasoning_tokens,
         )
-        ai_cost += ai_response.web_search_calls * OPENAI_WEB_SEARCH_COST_PER_CALL
-        ai_cost += ai_response.maps_grounding_calls * GEMINI_MAPS_GROUNDING_COST_PER_CALL
+        ai_cost += _compute_tool_cost(
+            self.ai_model,
+            web_search_calls=ai_response.web_search_calls,
+            maps_grounding_calls=ai_response.maps_grounding_calls,
+        )
 
         tool_parts: list[str] = []
         if ai_response.web_search_calls:

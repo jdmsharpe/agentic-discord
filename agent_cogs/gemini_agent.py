@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import discord
@@ -35,6 +36,15 @@ _ALL_TOOLS: list[dict[str, Any]] = [
 ]
 
 
+@dataclass(frozen=True)
+class GeminiGroundingMetadata:
+    """Grounding details extracted from a Gemini response."""
+
+    search_queries: tuple[str, ...] = ()
+    rendered_content: str = ""
+    sources: tuple[tuple[str, str], ...] = ()
+
+
 def _filter_tools_for_model(model: str, tools: list[dict]) -> list[dict]:
     """Return only the tools compatible with the given model."""
     supported = []
@@ -46,6 +56,61 @@ def _filter_tools_for_model(model: str, tools: list[dict]) -> list[dict]:
             continue
         supported.append(tool)
     return supported
+
+
+def _extract_gemini_grounding_metadata(response: Any) -> GeminiGroundingMetadata:
+    """Extract search queries, rendered search UI, and grounded sources from a response."""
+    if not response.candidates:
+        return GeminiGroundingMetadata()
+
+    meta = getattr(response.candidates[0], "grounding_metadata", None)
+    if not meta:
+        return GeminiGroundingMetadata()
+
+    search_queries = tuple(
+        query.strip()
+        for query in (getattr(meta, "web_search_queries", None) or [])
+        if isinstance(query, str) and query.strip()
+    )
+
+    rendered_content = ""
+    search_entry_point = getattr(meta, "search_entry_point", None)
+    if search_entry_point:
+        rendered_content = (getattr(search_entry_point, "rendered_content", "") or "").strip()
+
+    seen: set[tuple[str, str]] = set()
+    sources: list[tuple[str, str]] = []
+    for chunk in getattr(meta, "grounding_chunks", None) or []:
+        web = getattr(chunk, "web", None)
+        if not web:
+            continue
+        uri = (getattr(web, "uri", "") or "").strip()
+        title = (getattr(web, "title", "") or "").strip()
+        if not uri:
+            continue
+        key = (uri, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append(key)
+
+    return GeminiGroundingMetadata(
+        search_queries=search_queries,
+        rendered_content=rendered_content,
+        sources=tuple(sources),
+    )
+
+
+def _format_gemini_grounding_footer(metadata: GeminiGroundingMetadata) -> str:
+    """Format grounded web sources as a compact markdown footer."""
+    if not metadata.sources:
+        return ""
+
+    formatted: list[str] = []
+    for uri, title in metadata.sources:
+        safe_title = (title or "source").replace("[", r"\[").replace("]", r"\]")
+        formatted.append(f"[{safe_title}]({uri})")
+    return f"Sources: {' · '.join(formatted)}"
 
 
 class GeminiAgentCog(BaseAgentCog):
@@ -91,24 +156,18 @@ class GeminiAgentCog(BaseAgentCog):
             output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
             thinking_tokens = getattr(response.usage_metadata, "thoughts_token_count", 0) or 0
         text = response.text or ""
-        # Append grounding source URLs as footnotes when available
-        sources: list[tuple[str, str]] = []
-        if response.candidates:
-            meta = getattr(response.candidates[0], "grounding_metadata", None)
-            if meta:
-                for chunk in getattr(meta, "grounding_chunks", None) or []:
-                    web = getattr(chunk, "web", None)
-                    if web:
-                        uri = getattr(web, "uri", "") or ""
-                        title = getattr(web, "title", "") or ""
-                        if uri and (uri, title) not in sources:
-                            sources.append((uri, title))
-        if sources:
-            formatted: list[str] = []
-            for uri, title in sources:
-                safe = (title or "source").replace("[", r"\[").replace("]", r"\]")
-                formatted.append(f"[{safe}]({uri})")
-            text = f"{text}\n\nSources: {' · '.join(formatted)}"
+        grounding = _extract_gemini_grounding_metadata(response)
+        if grounding.search_queries:
+            logger.info(
+                "[gemini] google_search queries this turn: %s",
+                " | ".join(grounding.search_queries),
+            )
+        if grounding.rendered_content:
+            rendered_preview = " ".join(grounding.rendered_content.split())
+            logger.debug("[gemini] grounding entry point: %s", rendered_preview[:500])
+        footer = _format_gemini_grounding_footer(grounding)
+        if footer:
+            text = f"{text}\n\n{footer}" if text else footer
         return AIResponse(
             text=text,
             input_tokens=input_tokens,

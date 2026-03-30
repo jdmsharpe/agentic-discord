@@ -9,8 +9,9 @@ import random
 import sys
 import time
 import types as stdlib_types
-import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 fake_config = stdlib_types.ModuleType("agent_coordinator.config")
 fake_config.REDIS_URL = "redis://localhost:6379"
@@ -50,25 +51,25 @@ from agent_coordinator.scheduler import DailyScheduler  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-class TestScheduler(unittest.TestCase):
-    def setUp(self):
+class TestScheduler:
+    def setup_method(self, _method=None):
         self.engine = MagicMock()
         self.scheduler = DailyScheduler(self.engine)
 
     def test_generate_todays_times_count(self):
         times = self.scheduler._generate_todays_times()
-        self.assertLessEqual(len(times), 5)
+        assert len(times) <= 5
 
     def test_generate_todays_times_sorted(self):
         times = self.scheduler._generate_todays_times()
         for i in range(len(times) - 1):
-            self.assertLessEqual(times[i], times[i + 1])
+            assert times[i] <= times[i + 1]
 
     def test_generate_todays_times_within_active_hours(self):
         times = self.scheduler._generate_todays_times()
         for t in times:
-            self.assertGreaterEqual(t.hour, 9)
-            self.assertLess(t.hour, 23)
+            assert t.hour >= 9
+            assert t.hour < 23
 
     def test_generate_todays_times_filters_past(self):
         times = self.scheduler._generate_todays_times()
@@ -76,7 +77,7 @@ class TestScheduler(unittest.TestCase):
 
         now = datetime.datetime.now(ZoneInfo("America/New_York"))
         for t in times:
-            self.assertGreater(t, now)
+            assert t > now
 
 
 # ---------------------------------------------------------------------------
@@ -84,29 +85,29 @@ class TestScheduler(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestShouldContinue(unittest.TestCase):
-    def setUp(self):
+class TestShouldContinue:
+    def setup_method(self, _method=None):
         self.engine = ConversationEngine(MagicMock())
 
     def test_stops_at_max_rounds(self):
         state = ConversationState()
         state.round_number = 50
         state.text_responses_this_round = 4
-        self.assertFalse(self.engine._should_continue(state))
+        assert not self.engine._should_continue(state)
 
     def test_stops_when_all_skip(self):
         state = ConversationState()
         state.round_number = 3
         state.total_skips_this_round = 3
         state.text_responses_this_round = 1
-        self.assertFalse(self.engine._should_continue(state))
+        assert not self.engine._should_continue(state)
 
     def test_stops_when_not_enough_engagement(self):
         state = ConversationState()
         state.round_number = 3
         state.total_skips_this_round = 2
         state.text_responses_this_round = 1
-        self.assertFalse(self.engine._should_continue(state))
+        assert not self.engine._should_continue(state)
 
     def test_continues_with_engagement(self):
         state = ConversationState()
@@ -115,7 +116,7 @@ class TestShouldContinue(unittest.TestCase):
         state.text_responses_this_round = 3
         random.seed(42)
         result = self.engine._should_continue(state)
-        self.assertTrue(result)
+        assert result
 
     def test_probability_decays_over_rounds(self):
         state = ConversationState()
@@ -123,7 +124,7 @@ class TestShouldContinue(unittest.TestCase):
         state.text_responses_this_round = 4
         state.round_number = 25
         random.seed(0)
-        self.assertFalse(self.engine._should_continue(state))
+        assert not self.engine._should_continue(state)
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +132,8 @@ class TestShouldContinue(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestSendTurn(unittest.TestCase):
-    def setUp(self):
+class TestSendTurn:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.mock_redis.publish = AsyncMock()
         self.engine = ConversationEngine(self.mock_redis)
@@ -160,18 +161,18 @@ class TestSendTurn(unittest.TestCase):
             self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
             result = await self.engine._send_turn(state, "chatgpt")
 
-            self.assertFalse(result["skipped"])
-            self.assertEqual(result["text"], "Hello!")
+            assert not result["skipped"]
+            assert result["text"] == "Hello!"
 
             call_args = self.mock_redis.publish.call_args
             channel = call_args[0][0]
             instruction = json.loads(call_args[0][1])
 
-            self.assertEqual(channel, "agent:chatgpt:instructions")
-            self.assertEqual(instruction["protocol_version"], 1)
-            self.assertEqual(instruction["action"], "decide")
-            self.assertEqual(instruction["channel_id"], 100)
-            self.assertFalse(instruction["is_conversation_starter"])
+            assert channel == "agent:chatgpt:instructions"
+            assert instruction["protocol_version"] == 1
+            assert instruction["action"] == "decide"
+            assert instruction["channel_id"] == 100
+            assert not instruction["is_conversation_starter"]
 
         asyncio.run(run())
 
@@ -191,7 +192,7 @@ class TestSendTurn(unittest.TestCase):
 
             call_args = self.mock_redis.publish.call_args
             instruction = json.loads(call_args[0][1])
-            self.assertTrue(instruction["is_conversation_starter"])
+            assert instruction["is_conversation_starter"]
 
         asyncio.run(run())
 
@@ -201,8 +202,8 @@ class TestSendTurn(unittest.TestCase):
 
         async def run():
             result = await self.engine._send_turn(state, "chatgpt")
-            self.assertTrue(result["skipped"])
-            self.assertEqual(result["reason"], "timeout")
+            assert result["skipped"]
+            assert result["reason"] == "timeout"
 
         asyncio.run(run())
 
@@ -212,8 +213,8 @@ class TestSendTurn(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestReactiveTrigger(unittest.TestCase):
-    def setUp(self):
+class TestReactiveTrigger:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.mock_redis.publish = AsyncMock()
         self.engine = ConversationEngine(self.mock_redis)
@@ -271,7 +272,7 @@ class TestReactiveTrigger(unittest.TestCase):
                     random.seed(seed)
                     break
             else:
-                self.skipTest("Could not find a seed that triggers reactive")
+                pytest.skip("Could not find a seed that triggers reactive")
 
             called_agents = []
 
@@ -288,7 +289,7 @@ class TestReactiveTrigger(unittest.TestCase):
                 }
             )
 
-            self.assertNotIn("chatgpt", called_agents)
+            assert "chatgpt" not in called_agents
 
         asyncio.run(run())
 
@@ -298,8 +299,8 @@ class TestReactiveTrigger(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestRunRound(unittest.TestCase):
-    def setUp(self):
+class TestRunRound:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.mock_redis.publish = AsyncMock()
         self.mock_redis.lpop = AsyncMock(return_value="chatgpt")
@@ -322,8 +323,8 @@ class TestRunRound(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertEqual(len(agents_called), 4)
-            self.assertEqual(sorted(agents_called), sorted(fake_config.AGENT_NAMES))
+            assert len(agents_called) == 4
+            assert sorted(agents_called) == sorted(fake_config.AGENT_NAMES)
 
         asyncio.run(run())
 
@@ -343,8 +344,8 @@ class TestRunRound(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertTrue(starter_flags[0])
-            self.assertFalse(any(starter_flags[1:]))
+            assert starter_flags[0]
+            assert not any(starter_flags[1:])
 
         asyncio.run(run())
 
@@ -368,7 +369,7 @@ class TestRunRound(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertEqual(state.topic, "AI safety regulations")
+            assert state.topic == "AI safety regulations"
 
         asyncio.run(run())
 
@@ -392,7 +393,7 @@ class TestRunRound(unittest.TestCase):
             self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
             await self.engine._send_turn(state, "chatgpt")
 
-            self.assertEqual(published_instructions[0]["topic"], "AI safety regulations")
+            assert published_instructions[0]["topic"] == "AI safety regulations"
 
         asyncio.run(run())
 
@@ -412,7 +413,7 @@ class TestRunRound(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertFalse(any(starter_flags))
+            assert not any(starter_flags)
 
         asyncio.run(run())
 
@@ -435,8 +436,8 @@ class TestRunRound(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertEqual(state.text_responses_this_round, 2)
-            self.assertEqual(state.total_skips_this_round, 2)
+            assert state.text_responses_this_round == 2
+            assert state.total_skips_this_round == 2
 
         asyncio.run(run())
 
@@ -446,8 +447,8 @@ class TestRunRound(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestEndConversation(unittest.TestCase):
-    def setUp(self):
+class TestEndConversation:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.mock_redis.publish = AsyncMock()
         self.mock_redis.lpop = AsyncMock(return_value="chatgpt")
@@ -478,8 +479,8 @@ class TestEndConversation(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertTrue(state.ended_naturally)
-            self.assertEqual(call_count, 2)  # Should stop after 2, not process all 4
+            assert state.ended_naturally
+            assert call_count == 2
 
         asyncio.run(run())
 
@@ -508,8 +509,8 @@ class TestEndConversation(unittest.TestCase):
                 await self.engine._run_round(state)
 
             # Only one end_conversation then reset — should NOT have ended
-            self.assertFalse(state.ended_naturally)
-            self.assertEqual(idx, 4)
+            assert not state.ended_naturally
+            assert idx == 4
 
         asyncio.run(run())
 
@@ -537,7 +538,7 @@ class TestEndConversation(unittest.TestCase):
             with patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock):
                 await self.engine._run_round(state)
 
-            self.assertTrue(state.ended_naturally)
+            assert state.ended_naturally
 
         asyncio.run(run())
 
@@ -547,7 +548,7 @@ class TestEndConversation(unittest.TestCase):
         state.round_number = 1
         state.text_responses_this_round = 4
         state.total_skips_this_round = 0
-        self.assertFalse(self.engine._should_continue(state))
+        assert not self.engine._should_continue(state)
 
 
 # ---------------------------------------------------------------------------
@@ -555,8 +556,8 @@ class TestEndConversation(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestRedisResilience(unittest.TestCase):
-    def setUp(self):
+class TestRedisResilience:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.engine = ConversationEngine(self.mock_redis)
 
@@ -580,9 +581,9 @@ class TestRedisResilience(unittest.TestCase):
             ) as mock_sleep:
                 await self.engine._wait_for_redis()
 
-            self.assertEqual(self.mock_redis.ping.await_count, 3)
+            assert self.mock_redis.ping.await_count == 3
             # Backoff: 1s, then 2s
-            self.assertEqual(mock_sleep.await_count, 2)
+            assert mock_sleep.await_count == 2
             mock_sleep.assert_any_await(1)
             mock_sleep.assert_any_await(2)
 
@@ -627,11 +628,11 @@ class TestRedisResilience(unittest.TestCase):
         async def run():
             with (
                 patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock),
-                self.assertRaises(asyncio.CancelledError),
+                pytest.raises(asyncio.CancelledError),
             ):
                 await self.engine._listen_for_results()
 
-            self.assertEqual(call_count, 2)
+            assert call_count == 2
 
         asyncio.run(run())
 
@@ -673,12 +674,12 @@ class TestRedisResilience(unittest.TestCase):
 
             with (
                 patch("agent_coordinator.engine.asyncio.sleep", new_callable=AsyncMock),
-                self.assertRaises(asyncio.CancelledError),
+                pytest.raises(asyncio.CancelledError),
             ):
                 await self.engine._listen_for_results()
 
-            self.assertTrue(future.done())
-            self.assertEqual(future.result()["text"], "hello")
+            assert future.done()
+            assert future.result()["text"] == "hello"
 
         asyncio.run(run())
 
@@ -688,8 +689,8 @@ class TestRedisResilience(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
-    def setUp(self):
+class TestConsecutiveTimeoutHealthCheck:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.mock_redis.publish = AsyncMock()
         self.engine = ConversationEngine(self.mock_redis)
@@ -700,11 +701,11 @@ class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
 
         async def run():
             result = await self.engine._send_turn(state, "chatgpt")
-            self.assertTrue(result["skipped"])
-            self.assertEqual(self.engine._consecutive_timeouts, 1)
+            assert result["skipped"]
+            assert self.engine._consecutive_timeouts == 1
 
             result = await self.engine._send_turn(state, "claude")
-            self.assertEqual(self.engine._consecutive_timeouts, 2)
+            assert self.engine._consecutive_timeouts == 2
 
         asyncio.run(run())
 
@@ -715,7 +716,7 @@ class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
         async def run():
             # First: timeout
             await self.engine._send_turn(state, "chatgpt")
-            self.assertEqual(self.engine._consecutive_timeouts, 1)
+            assert self.engine._consecutive_timeouts == 1
 
             # Second: success (resolve the future before timeout)
             async def fake_publish(channel, data):
@@ -728,7 +729,7 @@ class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
 
             self.mock_redis.publish = AsyncMock(side_effect=fake_publish)
             await self.engine._send_turn(state, "claude")
-            self.assertEqual(self.engine._consecutive_timeouts, 0)
+            assert self.engine._consecutive_timeouts == 0
 
         asyncio.run(run())
 
@@ -752,8 +753,8 @@ class TestConsecutiveTimeoutHealthCheck(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestSchedulePersistence(unittest.TestCase):
-    def setUp(self):
+class TestSchedulePersistence:
+    def setup_method(self, _method=None):
         self.mock_redis = MagicMock()
         self.mock_redis.get = AsyncMock(return_value=None)
         self.mock_redis.set = AsyncMock()
@@ -769,7 +770,7 @@ class TestSchedulePersistence(unittest.TestCase):
                 self.mock_redis.set.assert_awaited_once()
                 call_args = self.mock_redis.set.call_args
                 key = call_args[0][0]
-                self.assertIn("coordinator:schedule:", key)
+                assert "coordinator:schedule:" in key
             return times
 
         asyncio.run(run())
@@ -785,7 +786,7 @@ class TestSchedulePersistence(unittest.TestCase):
         async def run():
             self.mock_redis.get = AsyncMock(return_value=stored)
             times = await self.scheduler._load_or_create_schedule()
-            self.assertEqual(len(times), 1)
+            assert len(times) == 1
             # Should NOT have called set (loaded from Redis)
             self.mock_redis.set.assert_not_awaited()
 
@@ -803,7 +804,7 @@ class TestSchedulePersistence(unittest.TestCase):
         async def run():
             self.mock_redis.get = AsyncMock(return_value=stored)
             times = await self.scheduler._load_or_create_schedule()
-            self.assertEqual(len(times), 1)
+            assert len(times) == 1
 
         asyncio.run(run())
 
@@ -839,7 +840,7 @@ class TestSchedulePersistence(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestBotReadinessGate(unittest.TestCase):
+class TestBotReadinessGate:
     def test_proceeds_when_all_bots_ready(self):
         from agent_coordinator.coordinator import _wait_for_bots_ready
 
@@ -849,7 +850,7 @@ class TestBotReadinessGate(unittest.TestCase):
         async def run():
             await _wait_for_bots_ready(mock_redis, timeout=5)
             # Should have checked all 4 bot keys
-            self.assertTrue(mock_redis.exists.await_count >= 4)
+            assert mock_redis.exists.await_count >= 4
 
         asyncio.run(run())
 
@@ -887,7 +888,3 @@ class TestBotReadinessGate(unittest.TestCase):
                 await _wait_for_bots_ready(mock_redis, timeout=2)
 
         asyncio.run(run())
-
-
-if __name__ == "__main__":
-    unittest.main()

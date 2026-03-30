@@ -133,7 +133,7 @@ git config core.hooksPath .githooks        # enable pre-commit hook
 
 python run_all.py                          # all 4 bots + coordinator
 AGENT_NAME=gemini python run_bot.py        # single bot
-python dashboard.py                        # cost dashboard on :8080
+python dashboard.py                        # cost dashboard on :8888
 ```
 
 Docker is also supported via `Dockerfile` (production) and `Dockerfile.test` (CI).
@@ -155,30 +155,30 @@ Pyright is configured in `pyproject.toml` for type checking (`agent_cogs/`, `age
 ## Tests
 
 ```bash
-python -m pytest tests/ -v       # preferred
-python -m unittest discover -s tests -v  # alternative
+python -m pytest tests/ -v       # 122 tests
 ```
 
-Tests mock out Redis, Discord, and all AI provider SDKs — no live connections needed.
+Tests are pytest-native and mock out Redis, Discord, and all AI provider SDKs — no live connections needed.
 CI (`CI` workflow) runs `pytest` on Python 3.10, 3.11, 3.12, and 3.13 for every push/PR to `main`, plus a Docker smoke test using `Dockerfile.test` on Python 3.13. Pushes to `main` also publish `${DOCKER_HUB_USERNAME}/agentic-discord:latest`.
 
 ## Conventions
 
 - New agent: subclass `BaseAgentCog`, implement `_call_ai(prompt, history)` → `AIResponse` and `_generate_image_bytes(prompt)`; set `agent_redis_name`, `ai_model`, and `image_model` class attributes. `agent_redis_name` **must** be overridden (enforced by `__init_subclass__`)
 - Shared helpers in `base.py`: `_extract_responses_api_usage(response)` for OpenAI/Grok token extraction, `_extract_responses_api_text_with_citations(response)` for converting `url_citation` annotations to inline markdown links (OpenAI/Grok), `_download_image_bytes(session, url)` for image downloading — use these instead of duplicating logic in subclasses
-- `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI/Grok, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (OpenAI/Grok, $0.01/call), `maps_grounding_calls` (Gemini, $0.025/call) — set these in `_call_ai()` for accurate cost tracking; OpenAI/Grok include reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
+- `AIResponse` includes provider-specific token fields: `cache_creation_tokens` / `cache_read_tokens` (Anthropic), `cached_input_tokens` (OpenAI/Grok, 50% discount), `reasoning_tokens` (OpenAI/Grok/Gemini thinking tokens), `web_search_calls` (provider-reported search usage for embeds/metrics; directly billed today for OpenAI/Grok only), `maps_grounding_calls` (Gemini, $0.025/call) — set these in `_call_ai()` for accurate cost tracking; OpenAI/Grok include reasoning in `output_tokens` so the agent subtracts before setting both fields to avoid double-counting
 - Grok agent uses `AsyncOpenAI` pointed at `https://api.x.ai/v1` (Responses API); includes `prompt_cache_key` (per-instance UUID for server-sticky routing), `prompt_cache_retention="24h"`, and `context_management` compaction; tools: `web_search` + `x_search`
-- Anthropic agent uses `web_fetch_20260309` tool (max 5 uses, caching disabled), adaptive thinking (`{"type": "adaptive"}`), and medium effort (`output_config={"effort": "medium"}`); do not mix `adaptive` + `budget_tokens` (causes 400)
+- Anthropic agent uses `web_fetch_20260309` tool (max 5 uses, caching disabled), adaptive thinking (`{"type": "adaptive"}`), and medium effort (`output_config={"effort": "medium"}`); it also records `response.usage.server_tool_use.web_search_requests` into `AIResponse.web_search_calls` for observability. Do not mix `adaptive` + `budget_tokens` (causes 400)
 - Inline citations: all agents convert provider citation data to Discord-clickable markdown links. Anthropic: `_convert_anthropic_citations()` maps `<cite>` tags to `citations` list → `text ([title](url))`. OpenAI/Grok: `_extract_responses_api_text_with_citations()` splices `url_citation` annotations → `[title](url)`. Gemini: grounding chunks appended as `Sources: [title](url) · ...` footer
 - `_compute_token_cost()` handles Anthropic cache tokens (2x/0.1x input price), OpenAI cached input (50% input price), and reasoning tokens (output price) automatically
 - `format_api_error()` in `base.py` extracts structured error info from any provider's exceptions
-- `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads — use it instead of creating per-request sessions
+- `get_http_session()` on BaseAgentCog provides a shared aiohttp session for image URL downloads with explicit timeouts and connector limits — use it instead of creating per-request sessions
 - All Redis keys follow `agent:{name}:*` namespace
 - Cost tracking keys: `agent:{name}:cost:{YYYY-MM-DD}` hash (total_cost, ai_cost, image_cost, input_tokens, output_tokens, reasoning_tokens, ai_calls, image_calls, web_search_calls, maps_grounding_calls, emoji_reactions) with 30-day TTL (`_COST_KEY_TTL_SECONDS` constant in `base.py`)
 - `MODEL_PRICING` dict in `base.py` maps model names → cost per 1M tokens (text) or per image
 - Coordinator keys: `coordinator:*`
 - Per-channel starter queue: `coordinator:starter_queue:{channel_id}` (cycles all 4 agents fairly, survives restarts)
 - Daily channel queue: `coordinator:channel_queue:{date}` (`DAILY_KEY_TTL_SECONDS` in config; each channel fires once before repeats, then random fallback)
+- Priority channel behavior: when the daily queue is first seeded, valid `COORDINATOR_PRIORITY_CHANNELS` are shuffled to the front of that day's queue and all remaining channels are shuffled after them; invalid IDs are ignored with a warning
 - Redis protocol messages have `TypedDict` definitions in `engine.py` (`HistoryEntry`, `AgentResult`) for static type checking
 - Discord context includes relative timestamps ("3h ago") and filters system messages via `msg.is_system()`
 - Round 1 channel backdrop: agents see recent Discord messages (theme-scaled via `get_context_window`) before coordinator conversation begins
