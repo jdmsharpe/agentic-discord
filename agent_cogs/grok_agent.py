@@ -15,6 +15,7 @@ from agent_config import XAI_API_KEY
 from .base import (
     AIResponse,
     BaseAgentCog,
+    _download_image_bytes,
     _extract_responses_api_text_with_citations,
     _extract_responses_api_usage,
 )
@@ -87,9 +88,10 @@ class GrokAgentCog(BaseAgentCog):
                     return base64.b64decode(item.b64_json)
                 if hasattr(item, "url") and item.url:
                     session = await self.get_http_session()
-                    async with session.get(item.url) as resp:
-                        if resp.status == 200:
-                            return await resp.read()
+                    result = await _download_image_bytes(session, item.url)
+                    if result:
+                        data, _ = result
+                        return data
         except Exception:
             logger.exception("Grok image generation failed")
         return None

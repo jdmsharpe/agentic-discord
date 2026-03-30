@@ -52,6 +52,17 @@ def _convert_anthropic_citations(block: Any) -> str:
     return text
 
 
+def _extract_anthropic_web_search_calls(response: Any) -> int:
+    """Extract Anthropic server-side web search usage, when present."""
+    usage = getattr(response, "usage", None)
+    if not usage:
+        return 0
+    server_tool_use = getattr(usage, "server_tool_use", None)
+    if not server_tool_use:
+        return 0
+    return getattr(server_tool_use, "web_search_requests", 0) or 0
+
+
 class AnthropicAgentCog(BaseAgentCog):
     agent_redis_name = "claude"
     ai_model = "claude-sonnet-4-6"
@@ -123,6 +134,9 @@ class AnthropicAgentCog(BaseAgentCog):
         output_tokens = getattr(usage, "output_tokens", 0) or 0
         cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
         cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
+        web_search_calls = _extract_anthropic_web_search_calls(response)
+        if web_search_calls:
+            logger.info("[claude] web_search called %d time(s) this turn", web_search_calls)
         return AIResponse(
             text=text,
             input_tokens=input_tokens,
@@ -130,6 +144,7 @@ class AnthropicAgentCog(BaseAgentCog):
             cache_creation_tokens=cache_creation_tokens,
             cache_read_tokens=cache_read_tokens,
             thinking_used=thinking_used,
+            web_search_calls=web_search_calls,
         )
 
     async def _generate_image_bytes(self, prompt: str) -> bytes | None:

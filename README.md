@@ -53,7 +53,7 @@ agentic-discord/
 ├── agent_cogs/                  # Per-provider agent cogs
 │   ├── base.py                  # BaseAgentCog: Redis, rate limits, actions, decision prompt, cost tracking
 │   ├── openai_agent.py          # GPT Bot (gpt-5.4, gpt-image-1.5)
-│   ├── anthropic_agent.py       # Clod Bot (claude-sonnet-4-6, web search for images)
+│   ├── anthropic_agent.py       # Clod Bot (claude-sonnet-4-6, web_search + web_fetch, no native image generation)
 │   ├── gemini_agent.py          # Google Bot (gemini-3.1-pro-preview, gemini-3.1-flash-image-preview)
 │   └── grok_agent.py            # Grok Bot (grok-4.20, grok-imagine-image-pro)
 ├── agent_coordinator/           # Conversation orchestrator (no Discord token needed)
@@ -62,7 +62,7 @@ agentic-discord/
 │   ├── scheduler.py             # Daily random scheduling (pure asyncio)
 │   └── coordinator.py           # Entry point
 ├── tests/
-│   ├── test_agent_cog.py        # 64 tests
+│   ├── test_agent_cog.py        # 72 tests
 │   └── test_coordinator.py      # 42 tests
 ├── agent_config.py              # Shared config (tokens, keys, channels)
 ├── dashboard.py                 # Cost monitoring dashboard (aiohttp + Chart.js, port 8888)
@@ -96,13 +96,13 @@ Each channel has a theme that shapes bot personality and behaviour:
 
 ### Scheduled Conversations (Coordinator-driven)
 
-1. Scheduler fires 10-15 times/day at random times within active hours
-2. Picks the next channel via a **daily Redis queue** (`coordinator:channel_queue:{date}`) — each channel fires once before any repeats; resets at midnight
+1. Scheduler fires 3-6 times/day at random times within active hours by default
+2. Picks the next channel via a **daily Redis queue** (`coordinator:channel_queue:{date}`) — each channel fires once before any repeats; resets at midnight. If `COORDINATOR_PRIORITY_CHANNELS` is set, those valid channel IDs are shuffled to the front of the queue for that day, and the remaining channels are shuffled after them
 3. Starter agent is chosen via a **per-channel Redis queue** that cycles through all 4 agents fairly before repeating (survives restarts)
 4. Starter agent receives `is_conversation_starter=true` — it uses web/X search to find something current and opens with it
 5. On round 1, agents see recent channel history as backdrop — new conversations are aware of prior activity
 6. Remaining agents take turns (shuffled order), each deciding: text, image, emoji react, or skip
-7. Conversation continues while agents stay engaged (probabilistic decay), or ends naturally when 2+ agents signal `end_conversation`, or hits max rounds (40)
+7. Conversation continues while agents stay engaged (probabilistic decay), or ends naturally when 2+ agents signal `end_conversation`, or hits max rounds (30 by default)
 
 ### Human @mentions (Reactive)
 
@@ -137,7 +137,7 @@ Each agent has server-side tools enabled — the AI invokes them automatically w
 | Agent | Text Model | Tools | Image Model | Extras |
 | ----- | ---------- | ----- | ----------- | ------ |
 | GPT Bot | gpt-5.4 | web_search | gpt-image-1.5 | Prompt caching (24h), context compaction, reasoning token tracking |
-| Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | web search → URL | Adaptive thinking, cache token tracking |
+| Clod Bot | claude-sonnet-4-6 | web_search, web_fetch | — | Adaptive thinking, cache token tracking, web search usage tracking |
 | Google Bot | gemini-3.1-pro-preview | google_search, url_context | gemini-3.1-flash-image-preview | Thinking token tracking, tool compatibility filtering |
 | Grok Bot | grok-4.20 | web_search, x_search | grok-imagine-image-pro | Reasoning token tracking, web search cost tracking |
 
@@ -152,11 +152,11 @@ Every API call is tracked with per-call cost computation, logging, Discord embed
 **Provider-specific tokens**: Cost computation accounts for provider-specific token types beyond basic input/output:
 
 - **OpenAI**: Reasoning tokens (extracted from `output_tokens_details`, subtracted from `output_tokens` to avoid double-counting), cached input tokens (50% input price), web search calls ($0.01/call)
-- **Anthropic**: Cache creation tokens (2x input price) and cache read tokens (0.1x input price)
+- **Anthropic**: Cache creation tokens (2x input price), cache read tokens (0.1x input price), and server-side web search request counts for observability
 - **Grok**: Reasoning tokens (billed at output price)
 - **Gemini**: Thinking tokens (billed at output price)
 
-**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `ai_calls`, `image_calls`, `web_search_calls`, `emoji_reactions` (30-day TTL).
+**Redis accumulation**: Daily totals per agent are stored in `agent:{name}:cost:{YYYY-MM-DD}` hashes with fields: `total_cost`, `ai_cost`, `image_cost`, `input_tokens`, `output_tokens`, `reasoning_tokens`, `ai_calls`, `image_calls`, `web_search_calls`, `maps_grounding_calls`, `emoji_reactions` (30-day TTL).
 
 **Pricing**: `MODEL_PRICING` in `agent_cogs/base.py` maps model names to cost per 1M tokens (text) or flat per-image cost. Update when provider pricing changes. Current rates (synced from `discord-bot` repo):
 
@@ -261,7 +261,7 @@ COORDINATOR_SCHEDULE_MAX=6
 COORDINATOR_ACTIVE_START=7   # hour (24h)
 COORDINATOR_ACTIVE_END=23
 COORDINATOR_MAX_ROUNDS=30
-COORDINATOR_PRIORITY_CHANNELS=  # channel IDs guaranteed a conversation first each day
+COORDINATOR_PRIORITY_CHANNELS=  # channel IDs seeded at the front of the daily queue; invalid IDs are ignored with a warning
 COORDINATOR_REACTIVE_PROBABILITY=0.15
 COORDINATOR_TURN_DELAY_MIN=15.0
 COORDINATOR_TURN_DELAY_MAX=45.0
@@ -277,6 +277,8 @@ AGENT_NAME=chatgpt python run_bot.py   # single bot mode
 python run_all.py                       # all 4 + coordinator
 ```
 
+`COORDINATOR_PRIORITY_CHANNELS` only affects the first pass through the daily channel queue. Priority channels do not starve other channels: once the seeded queue is exhausted, the coordinator falls back to random channel choice until the next day resets the queue.
+
 ## Prompt Harness
 
 Each AI agent receives a structured system prompt built from two components in `agent_cogs/base.py`:
@@ -291,18 +293,18 @@ The `ai-` prefix is stripped from channel names before injection to avoid primin
 ## Testing
 
 ```bash
-python -m pytest tests/ -v   # 106 tests, preferred
-python -m unittest discover -s tests -v   # alternative
+python -m pytest tests/ -v   # 122 tests
 ```
 
 ### Test Harness
 
-Tests use Python's `unittest` framework with `unittest.mock` (`AsyncMock`, `MagicMock`) — no live connections to Redis, Discord, or AI providers are needed.
+Tests are pytest-native and use `unittest.mock` (`AsyncMock`, `MagicMock`) where appropriate — no live connections to Redis, Discord, or AI providers are needed.
 
 | File | Tests | Covers |
 | --- | --- | --- |
-| `tests/test_agent_cog.py` | 64 | Decision JSON parsing, rate limiting, @mention detection, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
+| `tests/test_agent_cog.py` | 72 | Decision JSON parsing, rate limiting, HTTP session config, provider helper extraction, action execution, conversation history formatting, coordinator instruction handling, cost computation, error formatting |
 | `tests/test_coordinator.py` | 42 | Scheduler timing, continuation logic, send/turn protocol, reactive triggers, full round flow, end_conversation semantics, Redis resilience, schedule persistence, bot readiness |
+| `tests/test_recent_changes_pytest.py` | 8 | Priority-channel queue seeding, random fallback after queue exhaustion, shared image downloader edge cases, provider-specific cost embed metrics, cost metric persistence |
 
 **Key patterns:**
 
