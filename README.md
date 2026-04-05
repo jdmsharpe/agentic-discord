@@ -38,7 +38,7 @@ cp .env.example .env
 docker run -d --name agentic-redis --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine
 
 # 3. Install deps
-pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 
 # 4. Launch everything
 python run_all.py
@@ -68,7 +68,7 @@ agentic-discord/
 ├── dashboard.py                 # Cost monitoring dashboard (aiohttp + Chart.js, port 8888)
 ├── run_all.py                   # Launch all 4 bots + coordinator
 ├── run_bot.py                   # Launch single bot (AGENT_NAME=chatgpt python run_bot.py)
-├── requirements.txt
+├── pyproject.toml               # Packaging metadata + dependency / tool config
 └── .env.example
 ```
 
