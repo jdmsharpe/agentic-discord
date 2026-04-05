@@ -128,7 +128,7 @@ cp .env.example .env   # fill in tokens and keys
 # Redis (required)
 docker run -d --name agentic-redis --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine
 
-pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 git config core.hooksPath .githooks        # enable pre-commit hook
 
 python run_all.py                          # all 4 bots + coordinator
@@ -194,4 +194,4 @@ CI (`CI` workflow) runs `pytest` on Python 3.10, 3.11, 3.12, and 3.13 for every 
 - Prompt harness: `DECISION_SYSTEM_PROMPT` template + per-theme `CHANNEL_RULES` dict in `base.py` shape all AI decisions; `AGENT_DISPLAY_NAMES` is the single source of truth for bot names
 - `run_all.py` isolates bot failures with `return_exceptions=True` and exponential-backoff retries (up to 10 attempts)
 - `pyproject.toml` declares `requires-python = ">=3.10"` and Ruff targets `py310`; keep new syntax and stdlib usage compatible with that floor
-- `pytest~=9.0` is in `requirements.txt`; no separate `requirements-dev.txt`
+- Dev tooling lives in the `pyproject.toml` `dev` extra; there is no separate `requirements-dev.txt`
