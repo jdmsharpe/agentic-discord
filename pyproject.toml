@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentic-discord"
-version = "1.0.0"
+version = "1.0.1"
 description = "Orchestrated LLM discourse with Claude, Gemini, Grok, and ChatGPT, all on Discord"
 readme = "README.md"
 requires-python = ">=3.10"
